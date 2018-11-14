@@ -6,7 +6,7 @@ import (
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // This controller is responsible for monitoring services
@@ -16,22 +16,20 @@ type ServicesController struct {
 	services           v1.ServiceInterface
 	serviceLister      v1.ServiceLister
 	podLister          v1.PodLister
-	podController      v1.PodController
 	workloadController workloadutil.CommonController
 	machinesLister     v3.NodeLister
 	clusterName        string
 }
 
-func (s *ServicesController) sync(key string, obj *corev1.Service) (*corev1.Service, error) {
+func (s *ServicesController) sync(key string, obj *corev1.Service) (runtime.Object, error) {
 	if obj == nil || obj.DeletionTimestamp != nil {
 		namespace := ""
 		if obj != nil {
 			namespace = obj.Namespace
 		}
-		// push changes to all pods, so service
+		// push changes to all the workloads, so service
 		// endpoints can be removed from there
 		//since service is removed, there is no way to narrow down the pod/workload search
-		s.podController.Enqueue(namespace, allEndpoints)
 		s.workloadController.EnqueueAllWorkloads(namespace)
 		return nil, nil
 	}
@@ -74,21 +72,7 @@ func (s *ServicesController) reconcileEndpointsForService(svc *corev1.Service) (
 		return false, err
 	}
 
-	// 2. Push changes for pods behind the service
-	var pods []*corev1.Pod
-	set := labels.Set{}
-	for key, val := range svc.Spec.Selector {
-		set[key] = val
-	}
-	pods, err = s.podLister.List(svc.Namespace, labels.SelectorFromSet(set))
-	if err != nil {
-		return false, err
-	}
-	for _, pod := range pods {
-		s.podController.Enqueue(pod.Namespace, pod.Name)
-	}
-
-	// 3. Push changes to workload behind the service
+	// 2. Push changes to workload behind the service
 	workloads, err := s.workloadController.GetWorkloadsMatchingSelector(svc.Namespace, svc.Spec.Selector)
 	if err != nil {
 		return false, err

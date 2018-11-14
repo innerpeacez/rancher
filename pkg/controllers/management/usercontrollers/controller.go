@@ -14,6 +14,7 @@ import (
 	rbacV1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 /*
@@ -35,23 +36,26 @@ type ClusterLifecycleCleanup struct {
 	ctx     context.Context
 }
 
-func (c *ClusterLifecycleCleanup) Create(obj *v3.Cluster) (*v3.Cluster, error) {
+func (c *ClusterLifecycleCleanup) Create(obj *v3.Cluster) (runtime.Object, error) {
 	return nil, nil
 }
 
-func (c *ClusterLifecycleCleanup) Remove(obj *v3.Cluster) (*v3.Cluster, error) {
-	if obj.Status.Driver == v3.ClusterDriverImported {
-		err := c.cleanupImportedCluster(obj)
-		if err != nil {
-			apiError, ok := err.(*httperror.APIError)
-			// If it's not an API error give it back
-			if !ok {
-				return nil, err
-			}
-			// If it's anything but clusterUnavailable give it back
-			if apiError.Code != httperror.ClusterUnavailable {
-				return nil, err
-			}
+func (c *ClusterLifecycleCleanup) Remove(obj *v3.Cluster) (runtime.Object, error) {
+	var err error
+	if obj.Name == "local" {
+		err = c.cleanupLocalCluster(obj)
+	} else if obj.Status.Driver == v3.ClusterDriverImported {
+		err = c.cleanupImportedCluster(obj)
+	}
+	if err != nil {
+		apiError, ok := err.(*httperror.APIError)
+		// If it's not an API error give it back
+		if !ok {
+			return nil, err
+		}
+		// If it's anything but clusterUnavailable give it back
+		if apiError.Code != httperror.ClusterUnavailable {
+			return nil, err
 		}
 	}
 
@@ -59,7 +63,23 @@ func (c *ClusterLifecycleCleanup) Remove(obj *v3.Cluster) (*v3.Cluster, error) {
 	return nil, nil
 }
 
-func (c *ClusterLifecycleCleanup) Updated(obj *v3.Cluster) (*v3.Cluster, error) {
+func (c *ClusterLifecycleCleanup) cleanupLocalCluster(obj *v3.Cluster) error {
+	userContext, err := c.Manager.UserContext(obj.Name)
+	if err != nil {
+		return err
+	}
+	err = userContext.Apps.Deployments("cattle-system").Delete("cattle-cluster-agent", &metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	err = userContext.Apps.DaemonSets("cattle-system").Delete("cattle-node-agent", &metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+func (c *ClusterLifecycleCleanup) Updated(obj *v3.Cluster) (runtime.Object, error) {
 	return nil, nil
 }
 

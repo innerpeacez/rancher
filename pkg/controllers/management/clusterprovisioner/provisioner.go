@@ -68,7 +68,7 @@ func Register(ctx context.Context, management *config.ManagementContext) {
 	rkeDriver.WrapTransportFactory = docker.WrapTransport
 }
 
-func (p *Provisioner) Remove(cluster *v3.Cluster) (*v3.Cluster, error) {
+func (p *Provisioner) Remove(cluster *v3.Cluster) (runtime.Object, error) {
 	logrus.Infof("Deleting cluster [%s]", cluster.Name)
 	if skipProvisioning(cluster) ||
 		cluster.Status.Driver == "" {
@@ -91,7 +91,7 @@ func (p *Provisioner) Remove(cluster *v3.Cluster) (*v3.Cluster, error) {
 	return p.Clusters.Get(cluster.Name, metav1.GetOptions{})
 }
 
-func (p *Provisioner) Updated(cluster *v3.Cluster) (*v3.Cluster, error) {
+func (p *Provisioner) Updated(cluster *v3.Cluster) (runtime.Object, error) {
 	obj, err := v3.ClusterConditionUpdated.Do(cluster, func() (runtime.Object, error) {
 		setVersion(cluster)
 		return p.update(cluster, false)
@@ -126,7 +126,7 @@ func (p *Provisioner) update(cluster *v3.Cluster, create bool) (*v3.Cluster, err
 	return cluster, nil
 }
 
-func (p *Provisioner) machineChanged(key string, machine *v3.Node) (*v3.Node, error) {
+func (p *Provisioner) machineChanged(key string, machine *v3.Node) (runtime.Object, error) {
 	parts := strings.SplitN(key, "/", 2)
 
 	p.ClusterController.Enqueue("", parts[0])
@@ -134,7 +134,7 @@ func (p *Provisioner) machineChanged(key string, machine *v3.Node) (*v3.Node, er
 	return nil, nil
 }
 
-func (p *Provisioner) Create(cluster *v3.Cluster) (*v3.Cluster, error) {
+func (p *Provisioner) Create(cluster *v3.Cluster) (runtime.Object, error) {
 	var err error
 
 	// Initialize conditions, be careful to not continually update them
@@ -445,7 +445,8 @@ func (p *Provisioner) reconcileRKENodes(clusterName string) ([]v3.RKEConfigNode,
 
 		if v3.NodeConditionProvisioned.IsUnknown(machine) && (machine.Spec.Etcd || machine.Spec.ControlPlane) {
 			return nil, &controller.ForgetError{
-				Err: fmt.Errorf("waiting for %s to finish provisioning", machine.Spec.RequestedHostname),
+				Err:    fmt.Errorf("waiting for %s to finish provisioning", machine.Spec.RequestedHostname),
+				Reason: "Provisioning",
 			}
 		}
 
@@ -483,7 +484,8 @@ func (p *Provisioner) reconcileRKENodes(clusterName string) ([]v3.RKEConfigNode,
 
 	if !etcd || !controlplane {
 		return nil, &controller.ForgetError{
-			Err: fmt.Errorf("waiting for etcd and controlplane nodes to be registered"),
+			Err:    fmt.Errorf("waiting for etcd and controlplane nodes to be registered"),
+			Reason: "Provisioning",
 		}
 	}
 

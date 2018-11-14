@@ -23,8 +23,8 @@ const (
 	workerRoleLabel       = "node-role.kubernetes.io/worker"
 )
 
-func (c *Cluster) TunnelHosts(ctx context.Context, local bool) error {
-	if local {
+func (c *Cluster) TunnelHosts(ctx context.Context, flags ExternalFlags) error {
+	if flags.Local {
 		if err := c.ControlPlaneHosts[0].TunnelUpLocal(ctx, c.Version); err != nil {
 			return fmt.Errorf("Failed to connect to docker for local host [%s]: %v", c.EtcdHosts[0].Address, err)
 		}
@@ -116,7 +116,7 @@ func (c *Cluster) InvertIndexHosts() error {
 	return nil
 }
 
-func (c *Cluster) SetUpHosts(ctx context.Context) error {
+func (c *Cluster) SetUpHosts(ctx context.Context, rotateCerts bool) error {
 	if c.Authentication.Strategy == X509AuthenticationProvider {
 		log.Infof(ctx, "[certificates] Deploying kubernetes certificates to Cluster nodes")
 		hostList := hosts.GetUniqueHostList(c.EtcdHosts, c.ControlPlaneHosts, c.WorkerHosts)
@@ -127,7 +127,7 @@ func (c *Cluster) SetUpHosts(ctx context.Context) error {
 			errgrp.Go(func() error {
 				var errList []error
 				for host := range hostsQueue {
-					err := pki.DeployCertificatesOnPlaneHost(ctx, host.(*hosts.Host), c.RancherKubernetesEngineConfig, c.Certificates, c.SystemImages.CertDownloader, c.PrivateRegistriesMap)
+					err := pki.DeployCertificatesOnPlaneHost(ctx, host.(*hosts.Host), c.RancherKubernetesEngineConfig, c.Certificates, c.SystemImages.CertDownloader, c.PrivateRegistriesMap, rotateCerts)
 					if err != nil {
 						errList = append(errList, err)
 					}
@@ -139,7 +139,7 @@ func (c *Cluster) SetUpHosts(ctx context.Context) error {
 			return err
 		}
 
-		if err := pki.DeployAdminConfig(ctx, c.Certificates[pki.KubeAdminCertName].Config, c.LocalKubeConfigPath); err != nil {
+		if err := rebuildLocalAdminConfig(ctx, c); err != nil {
 			return err
 		}
 		log.Infof(ctx, "[certificates] Successfully deployed kubernetes certificates to Cluster nodes")
