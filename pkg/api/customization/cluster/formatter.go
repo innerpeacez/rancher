@@ -5,11 +5,15 @@ import (
 
 	"github.com/rancher/norman/types"
 	"github.com/rancher/norman/types/convert"
-	"github.com/rancher/types/client/management/v3"
+	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/sirupsen/logrus"
 )
 
-func Formatter(request *types.APIContext, resource *types.RawResource) {
+type Formatter struct {
+	KontainerDriverLister v3.KontainerDriverLister
+}
+
+func (f *Formatter) Formatter(request *types.APIContext, resource *types.RawResource) {
 	if convert.ToBool(resource.Values["internal"]) {
 		delete(resource.Links, "remove")
 	}
@@ -21,28 +25,34 @@ func Formatter(request *types.APIContext, resource *types.RawResource) {
 	resource.AddAction(request, "importYaml")
 	resource.AddAction(request, "exportYaml")
 
-	if gkeConfig, ok := resource.Values[client.ClusterSpecFieldGoogleKubernetesEngineConfig]; ok {
+	if convert.ToBool(resource.Values["enableClusterMonitoring"]) {
+		resource.AddAction(request, "disableMonitoring")
+	} else {
+		resource.AddAction(request, "enableMonitoring")
+	}
+
+	if gkeConfig, ok := resource.Values["googleKubernetesEngineConfig"]; ok {
 		configMap, ok := gkeConfig.(map[string]interface{})
 		if !ok {
 			logrus.Errorf("could not convert gke config to map")
 			return
 		}
 
-		setTrueIfNil(configMap, client.GoogleKubernetesEngineConfigFieldEnableStackdriverLogging)
-		setTrueIfNil(configMap, client.GoogleKubernetesEngineConfigFieldEnableStackdriverMonitoring)
-		setTrueIfNil(configMap, client.GoogleKubernetesEngineConfigFieldEnableHorizontalPodAutoscaling)
-		setTrueIfNil(configMap, client.GoogleKubernetesEngineConfigFieldEnableHTTPLoadBalancing)
-		setTrueIfNil(configMap, client.GoogleKubernetesEngineConfigFieldEnableNetworkPolicyConfig)
+		setTrueIfNil(configMap, "enableStackdriverLogging")
+		setTrueIfNil(configMap, "enableStackdriverMonitoring")
+		setTrueIfNil(configMap, "enableHorizontalPodAutoscaling")
+		setTrueIfNil(configMap, "enableHttpLoadBalancing")
+		setTrueIfNil(configMap, "enableNetworkPolicyConfig")
 	}
 
-	if eksConfig, ok := resource.Values[client.ClusterSpecFieldAmazonElasticContainerServiceConfig]; ok {
+	if eksConfig, ok := resource.Values["amazonElasticContainerServiceConfig"]; ok {
 		configMap, ok := eksConfig.(map[string]interface{})
 		if !ok {
-			logrus.Errorf("could not convert aks config to map")
+			logrus.Errorf("could not convert eks config to map")
 			return
 		}
 
-		setTrueIfNil(configMap, client.AmazonElasticContainerServiceConfigFieldAssociateWorkerNodePublicIP)
+		setTrueIfNil(configMap, "associateWorkerNodePublicIp")
 	}
 }
 

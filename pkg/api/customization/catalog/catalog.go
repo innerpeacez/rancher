@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"github.com/rancher/rancher/pkg/ref"
 	"time"
 
 	"bytes"
@@ -61,6 +62,10 @@ func (a ActionHandler) RefreshActionHandler(actionName string, action *types.Act
 			return err
 		}
 	}
+	data := map[string]interface{}{
+		"catalogs": catalogs,
+	}
+	apiContext.WriteResponse(http.StatusOK, data)
 	return nil
 }
 
@@ -109,7 +114,8 @@ func (a ActionHandler) RefreshProjectCatalogActionHandler(actionName string, act
 
 	prjCatalogs := []v3.ProjectCatalog{}
 	if apiContext.ID != "" {
-		catalog, err := a.ProjectCatalogClient.Get(apiContext.ID, metav1.GetOptions{})
+		ns, name := ref.Parse(apiContext.ID)
+		catalog, err := a.ProjectCatalogClient.GetNamespaced(ns, name, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -130,6 +136,10 @@ func (a ActionHandler) RefreshProjectCatalogActionHandler(actionName string, act
 			return err
 		}
 	}
+	data := map[string]interface{}{
+		"catalogs": prjCatalogs,
+	}
+	apiContext.WriteResponse(http.StatusOK, data)
 	return nil
 }
 
@@ -140,7 +150,8 @@ func (a ActionHandler) RefreshClusterCatalogActionHandler(actionName string, act
 
 	clCatalogs := []v3.ClusterCatalog{}
 	if apiContext.ID != "" {
-		catalog, err := a.ClusterCatalogClient.Get(apiContext.ID, metav1.GetOptions{})
+		ns, name := ref.Parse(apiContext.ID)
+		catalog, err := a.ClusterCatalogClient.GetNamespaced(ns, name, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -161,5 +172,9 @@ func (a ActionHandler) RefreshClusterCatalogActionHandler(actionName string, act
 			return err
 		}
 	}
+	data := map[string]interface{}{
+		"catalogs": clCatalogs,
+	}
+	apiContext.WriteResponse(http.StatusOK, data)
 	return nil
 }

@@ -1,13 +1,17 @@
 package clusterprovisioner
 
 import (
+	"fmt"
 	"reflect"
 
+	"github.com/rancher/kontainer-engine/service"
 	"github.com/rancher/rancher/pkg/clusterprovisioninglogger"
 	"github.com/rancher/rke/services"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"k8s.io/apimachinery/pkg/runtime"
 )
+
+const DriverNameField = "driverName"
 
 func (p *Provisioner) driverCreate(cluster *v3.Cluster, spec v3.ClusterSpec) (api string, token string, cert string, err error) {
 	ctx, logger := clusterprovisioninglogger.NewLogger(p.Clusters, cluster, v3.ClusterConditionProvisioned)
@@ -19,7 +23,28 @@ func (p *Provisioner) driverCreate(cluster *v3.Cluster, spec v3.ClusterSpec) (ap
 		cluster = newCluster
 	}
 
-	return p.Driver.Create(ctx, cluster.Name, spec)
+	kontainerDriver, err := p.getKontainerDriver(spec)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	return p.Driver.Create(ctx, cluster.Name, kontainerDriver, spec)
+}
+
+func (p *Provisioner) getKontainerDriver(spec v3.ClusterSpec) (*v3.KontainerDriver, error) {
+	if spec.GenericEngineConfig != nil {
+		return p.KontainerDriverLister.Get("", (*spec.GenericEngineConfig)[DriverNameField].(string))
+	}
+
+	if spec.RancherKubernetesEngineConfig != nil {
+		return p.KontainerDriverLister.Get("", service.RancherKubernetesEngineDriverName)
+	}
+
+	if spec.ImportedConfig != nil {
+		return p.KontainerDriverLister.Get("", "import")
+	}
+
+	return nil, fmt.Errorf("no kontainer driver for cluster %v", spec.DisplayName)
 }
 
 func (p *Provisioner) driverUpdate(cluster *v3.Cluster, spec v3.ClusterSpec) (api string, token string, cert string, err error) {
@@ -34,11 +59,22 @@ func (p *Provisioner) driverUpdate(cluster *v3.Cluster, spec v3.ClusterSpec) (ap
 		return cluster.Status.APIEndpoint, cluster.Status.ServiceAccountToken, cluster.Status.CACert, nil
 	}
 
+	if spec.RancherKubernetesEngineConfig != nil && spec.RancherKubernetesEngineConfig.Services.Etcd.Snapshot == nil &&
+		applied.RancherKubernetesEngineConfig != nil && applied.RancherKubernetesEngineConfig.Services.Etcd.Snapshot == nil {
+		_false := false
+		cluster.Spec.RancherKubernetesEngineConfig.Services.Etcd.Snapshot = &_false
+	}
+
 	if newCluster, err := p.Clusters.Update(cluster); err == nil {
 		cluster = newCluster
 	}
 
-	return p.Driver.Update(ctx, cluster.Name, spec)
+	kontainerDriver, err := p.getKontainerDriver(spec)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	return p.Driver.Update(ctx, cluster.Name, kontainerDriver, spec)
 }
 
 func (p *Provisioner) driverRemove(cluster *v3.Cluster) error {
@@ -52,7 +88,12 @@ func (p *Provisioner) driverRemove(cluster *v3.Cluster) error {
 			cluster = newCluster
 		}
 
-		return cluster, p.Driver.Remove(ctx, cluster.Name, spec)
+		kontainerDriver, err := p.getKontainerDriver(spec)
+		if err != nil {
+			return nil, err
+		}
+
+		return cluster, p.Driver.Remove(ctx, cluster.Name, kontainerDriver, spec)
 	})
 
 	return err

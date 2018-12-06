@@ -13,8 +13,10 @@ import (
 	"github.com/rancher/rancher/pkg/controllers/management/clusterstats"
 	"github.com/rancher/rancher/pkg/controllers/management/clusterstatus"
 	"github.com/rancher/rancher/pkg/controllers/management/compose"
+	"github.com/rancher/rancher/pkg/controllers/management/drivers/kontainerdriver"
+	"github.com/rancher/rancher/pkg/controllers/management/drivers/nodedriver"
+	"github.com/rancher/rancher/pkg/controllers/management/globaldns"
 	"github.com/rancher/rancher/pkg/controllers/management/node"
-	"github.com/rancher/rancher/pkg/controllers/management/nodedriver"
 	"github.com/rancher/rancher/pkg/controllers/management/nodepool"
 	"github.com/rancher/rancher/pkg/controllers/management/podsecuritypolicy"
 	"github.com/rancher/rancher/pkg/controllers/management/template"
@@ -37,11 +39,13 @@ func Register(ctx context.Context, management *config.ManagementContext, manager
 	clusterstats.Register(ctx, management, manager)
 	clusterstatus.Register(ctx, management)
 	compose.Register(ctx, management, manager)
+	kontainerdriver.Register(ctx, management)
 	nodedriver.Register(ctx, management)
 	nodepool.Register(ctx, management)
 	node.Register(ctx, management)
 	podsecuritypolicy.Register(ctx, management)
 	template.Register(ctx, management)
+	globaldns.Register(ctx, management)
 
 	// Register last
 	auth.RegisterLate(ctx, management)
