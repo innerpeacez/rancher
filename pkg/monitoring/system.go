@@ -18,7 +18,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
 
-func SyncServiceMonitor(cluster *mgmtv3.Cluster, agentCoreClient corev1.Interface, agentRBACClient rbacv1.Interface, cattleAppsGetter projectv3.AppsGetter, cattleProjectsGetter mgmtv3.ProjectsGetter, cattleTemplateVersionsClient mgmtv3.TemplateVersionInterface) error {
+func SyncServiceMonitor(cluster *mgmtv3.Cluster, agentCoreClient corev1.Interface, agentRBACClient rbacv1.Interface, cattleAppsGetter projectv3.AppsGetter, cattleProjectsGetter mgmtv3.ProjectsGetter, cattleTemplateVersionsClient mgmtv3.CatalogTemplateVersionInterface) error {
 	if cluster.Spec.EnableClusterMonitoring || cluster.Spec.EnableClusterAlerting {
 		err := DeploySystemMonitor(cluster, agentCoreClient, agentRBACClient, cattleAppsGetter, cattleProjectsGetter, cattleTemplateVersionsClient)
 		if err != nil {
@@ -33,7 +33,7 @@ func SyncServiceMonitor(cluster *mgmtv3.Cluster, agentCoreClient corev1.Interfac
 	return nil
 }
 
-func DeploySystemMonitor(cluster *mgmtv3.Cluster, agentCoreClient corev1.Interface, agentRBACClient rbacv1.Interface, cattleAppsGetter projectv3.AppsGetter, cattleProjectsGetter mgmtv3.ProjectsGetter, cattleTemplateVersionsClient mgmtv3.TemplateVersionInterface) (backErr error) {
+func DeploySystemMonitor(cluster *mgmtv3.Cluster, agentCoreClient corev1.Interface, agentRBACClient rbacv1.Interface, cattleAppsGetter projectv3.AppsGetter, cattleProjectsGetter mgmtv3.ProjectsGetter, cattleTemplateVersionsClient mgmtv3.CatalogTemplateVersionInterface) (backErr error) {
 	if cluster == nil || cluster.DeletionTimestamp != nil {
 		logrus.Warnf("cluster %s is deleted", cluster.Name)
 		return nil
@@ -101,7 +101,6 @@ func grantSystemMonitorRBAC(agentServiceAccountGetter corev1.ServiceAccountsGett
 	appServiceAccountName := appName
 	appClusterRoleName := appServiceAccountName
 	appClusterRoleBindingName := appServiceAccountName + "-binding"
-	ownedLabels := OwnedLabels(appName, appTargetNamespace, SystemLevel)
 
 	err := utilerrors.AggregateGoroutines(
 		// detect ServiceAccount (the name as same as App)
@@ -112,14 +111,14 @@ func grantSystemMonitorRBAC(agentServiceAccountGetter corev1.ServiceAccountsGett
 			}
 			if appServiceAccount.Name == appServiceAccountName {
 				if appServiceAccount.DeletionTimestamp != nil {
-					return errors.New(fmt.Sprintf("stale %q ServiceAccount is still on terminating", appServiceAccountName))
+					return fmt.Errorf("stale %q ServiceAccount is still on terminating", appServiceAccountName)
 				}
 			} else {
 				appServiceAccount = &k8scorev1.ServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      appServiceAccountName,
 						Namespace: appTargetNamespace,
-						Labels:    ownedLabels,
+						Labels:    OwnedLabels(appName, appTargetNamespace, SystemLevel),
 					},
 				}
 
@@ -173,7 +172,7 @@ func grantSystemMonitorRBAC(agentServiceAccountGetter corev1.ServiceAccountsGett
 
 			if appClusterRole.Name == appClusterRoleName {
 				if appClusterRole.DeletionTimestamp != nil {
-					return errors.New(fmt.Sprintf("stale %q ClusterRole is still on terminating", appClusterRoleName))
+					return fmt.Errorf("stale %q ClusterRole is still on terminating", appClusterRoleName)
 				}
 
 				// ensure
@@ -186,7 +185,7 @@ func grantSystemMonitorRBAC(agentServiceAccountGetter corev1.ServiceAccountsGett
 				appClusterRole = &k8srbacv1.ClusterRole{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   appClusterRoleName,
-						Labels: ownedLabels,
+						Labels: OwnedLabels(appName, appTargetNamespace, SystemLevel),
 					},
 					Rules: rules,
 				}
@@ -207,13 +206,13 @@ func grantSystemMonitorRBAC(agentServiceAccountGetter corev1.ServiceAccountsGett
 			}
 			if appClusterRoleBinding.Name == appClusterRoleBindingName {
 				if appClusterRoleBinding.DeletionTimestamp != nil {
-					return errors.New(fmt.Sprintf("stale %q ClusterRoleBinding is still on terminating", appClusterRoleBindingName))
+					return fmt.Errorf("stale %q ClusterRoleBinding is still on terminating", appClusterRoleBindingName)
 				}
 			} else {
 				appClusterRoleBinding = &k8srbacv1.ClusterRoleBinding{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   appClusterRoleBindingName,
-						Labels: ownedLabels,
+						Labels: OwnedLabels(appName, appTargetNamespace, SystemLevel),
 					},
 					Subjects: []k8srbacv1.Subject{
 						{

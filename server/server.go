@@ -11,7 +11,8 @@ import (
 	"github.com/rancher/rancher/pkg/audit"
 	"github.com/rancher/rancher/pkg/auth/providers/publicapi"
 	"github.com/rancher/rancher/pkg/auth/providers/saml"
-	authrequests "github.com/rancher/rancher/pkg/auth/requests"
+	"github.com/rancher/rancher/pkg/auth/requests"
+	"github.com/rancher/rancher/pkg/auth/requests/sar"
 	"github.com/rancher/rancher/pkg/auth/tokens"
 	"github.com/rancher/rancher/pkg/clustermanager"
 	rancherdialer "github.com/rancher/rancher/pkg/dialer"
@@ -49,9 +50,11 @@ func Start(ctx context.Context, httpPort, httpsPort int, scaledContext *config.S
 	root := mux.NewRouter()
 	root.UseEncodedPath()
 
-	rawAuthedAPIs := newAuthed(tokenAPI, managementAPI, k8sProxy)
+	rawAuthedAPIs := newAuthed(tokenAPI, managementAPI, k8sProxy, scaledContext)
 
-	authedHandler, err := authrequests.NewAuthenticationFilter(ctx, scaledContext, rawAuthedAPIs)
+	sar := sar.NewSubjectAccessReview(clusterManager)
+
+	authedHandler, err := requests.NewAuthenticationFilter(ctx, scaledContext, rawAuthedAPIs, sar)
 	if err != nil {
 		return err
 	}
@@ -85,10 +88,17 @@ func Start(ctx context.Context, httpPort, httpsPort int, scaledContext *config.S
 	uiContent := responsewriter.NewMiddlewareChain(responsewriter.Gzip, responsewriter.CacheMiddleware("json", "js", "css")).Handler(ui.Content())
 	root.PathPrefix("/assets").Handler(uiContent)
 	root.PathPrefix("/translations").Handler(uiContent)
+	root.PathPrefix("/ember-fetch").Handler(uiContent)
+	root.PathPrefix("/engines-dist").Handler(uiContent)
+	root.Handle("/asset-manifest.json", uiContent)
+	root.Handle("/crossdomain.xml", uiContent)
 	root.Handle("/humans.txt", uiContent)
 	root.Handle("/index.html", uiContent)
 	root.Handle("/robots.txt", uiContent)
 	root.Handle("/VERSION.txt", uiContent)
+
+	//API UI
+	root.PathPrefix("/api-ui").Handler(uiContent)
 
 	registerHealth(root)
 
@@ -96,7 +106,7 @@ func Start(ctx context.Context, httpPort, httpsPort int, scaledContext *config.S
 	return nil
 }
 
-func newAuthed(tokenAPI http.Handler, managementAPI http.Handler, k8sproxy http.Handler) *mux.Router {
+func newAuthed(tokenAPI http.Handler, managementAPI http.Handler, k8sproxy http.Handler, scaledContext *config.ScaledContext) *mux.Router {
 	authed := mux.NewRouter()
 	authed.UseEncodedPath()
 	authed.Path("/meta/gkeMachineTypes").Handler(capabilities.NewGKEMachineTypesHandler())
@@ -104,7 +114,7 @@ func newAuthed(tokenAPI http.Handler, managementAPI http.Handler, k8sproxy http.
 	authed.Path("/meta/gkeZones").Handler(capabilities.NewGKEZonesHandler())
 	authed.Path("/meta/aksVersions").Handler(capabilities.NewAKSVersionsHandler())
 	authed.Path("/meta/aksVirtualNetworks").Handler(capabilities.NewAKSVirtualNetworksHandler())
-	authed.PathPrefix("/meta/proxy").Handler(newProxy())
+	authed.PathPrefix("/meta/proxy").Handler(newProxy(scaledContext))
 	authed.PathPrefix("/meta").Handler(managementAPI)
 	authed.PathPrefix("/v3/identit").Handler(tokenAPI)
 	authed.PathPrefix("/v3/token").Handler(tokenAPI)
@@ -123,6 +133,6 @@ func connectHandlers(scaledContext *config.ScaledContext) (http.Handler, http.Ha
 	return http.NotFoundHandler(), http.NotFoundHandler()
 }
 
-func newProxy() http.Handler {
-	return httpproxy.NewProxy("/proxy/", whitelist.Proxy.Get)
+func newProxy(scaledContext *config.ScaledContext) http.Handler {
+	return httpproxy.NewProxy("/proxy/", whitelist.Proxy.Get, scaledContext)
 }

@@ -39,7 +39,10 @@ var (
 		Init(multiClusterAppTypes).
 		Init(globalDNSTypes).
 		Init(kontainerTypes).
-		Init(monitorTypes)
+		Init(etcdBackupTypes).
+		Init(monitorTypes).
+		Init(credTypes).
+		Init(mgmtSecretTypes)
 
 	TokenSchemas = factory.Schemas(&Version).
 			Init(tokens)
@@ -52,6 +55,24 @@ func rkeTypes(schemas *types.Schemas) *types.Schemas {
 func schemaTypes(schemas *types.Schemas) *types.Schemas {
 	return schemas.
 		MustImport(&Version, v3.DynamicSchema{})
+}
+
+func credTypes(schemas *types.Schemas) *types.Schemas {
+	return schemas.
+		AddMapperForType(&Version, v3.CloudCredential{},
+			&mapper.CredentialMapper{},
+			&m.Move{From: "name", To: "id"},
+			&m.Drop{Field: "namespaceId"}).
+		MustImport(&Version, v3.CloudCredential{})
+}
+
+func mgmtSecretTypes(schemas *types.Schemas) *types.Schemas {
+	return schemas.MustImportAndCustomize(&Version, v1.Secret{}, func(schema *types.Schema) {
+		schema.ID = "managementSecret"
+		schema.PluralName = "managementSecrets"
+		schema.CodeName = "ManagementSecret"
+		schema.CodeNamePlural = "ManagementSecrets"
+	})
 }
 
 func catalogTypes(schemas *types.Schemas) *types.Schemas {
@@ -75,6 +96,17 @@ func catalogTypes(schemas *types.Schemas) *types.Schemas {
 		MustImport(&Version, v3.Template{}, struct {
 			VersionLinks map[string]string
 		}{}).
+		AddMapperForType(&Version, v3.CatalogTemplate{},
+			m.DisplayName{},
+			m.Drop{Field: "namespaceId"},
+		).
+		MustImport(&Version, v3.CatalogTemplate{}, struct {
+			VersionLinks map[string]string
+		}{}).
+		AddMapperForType(&Version, v3.CatalogTemplateVersion{},
+			m.Drop{Field: "namespaceId"},
+		).
+		MustImport(&Version, v3.CatalogTemplateVersion{}).
 		MustImport(&Version, v3.TemplateVersion{}).
 		MustImport(&Version, v3.TemplateContent{})
 }
@@ -145,9 +177,11 @@ func clusterTypes(schemas *types.Schemas) *types.Schemas {
 		MustImport(&Version, v3.ClusterRegistrationToken{}).
 		MustImport(&Version, v3.GenerateKubeConfigOutput{}).
 		MustImport(&Version, v3.ImportClusterYamlInput{}).
+		MustImport(&Version, v3.RotateCertificateInput{}).
 		MustImport(&Version, v3.ImportYamlOutput{}).
 		MustImport(&Version, v3.ExportOutput{}).
 		MustImport(&Version, v3.MonitoringInput{}).
+		MustImport(&Version, v3.RestoreFromEtcdBackupInput{}).
 		MustImportAndCustomize(&Version, v3.ETCDService{}, func(schema *types.Schema) {
 			schema.MustCustomizeField("extraArgs", func(field types.Field) types.Field {
 				field.Default = map[string]interface{}{
@@ -177,6 +211,13 @@ func clusterTypes(schemas *types.Schemas) *types.Schemas {
 				Input: "monitoringInput",
 			}
 			schema.ResourceActions["disableMonitoring"] = types.Action{}
+			schema.ResourceActions["backupEtcd"] = types.Action{}
+			schema.ResourceActions["restoreFromEtcdBackup"] = types.Action{
+				Input: "restoreFromEtcdBackupInput",
+			}
+			schema.ResourceActions["rotateCertificates"] = types.Action{
+				Input: "rotateCertificateInput",
+			}
 		})
 }
 
@@ -327,11 +368,13 @@ func authnTypes(schemas *types.Schemas) *types.Schemas {
 					Input:  "setPasswordInput",
 					Output: "user",
 				},
+				"refreshauthprovideraccess": {},
 			}
 			schema.CollectionActions = map[string]types.Action{
 				"changepassword": {
 					Input: "changePasswordInput",
 				},
+				"refreshauthprovideraccess": {},
 			}
 		}).
 		MustImportAndCustomize(&Version, v3.AuthConfig{}, func(schema *types.Schema) {
@@ -445,6 +488,7 @@ func authnTypes(schemas *types.Schemas) *types.Schemas {
 		MustImportAndCustomize(&Version, v3.PingConfig{}, configSchema).
 		MustImportAndCustomize(&Version, v3.ADFSConfig{}, configSchema).
 		MustImportAndCustomize(&Version, v3.KeyCloakConfig{}, configSchema).
+		MustImportAndCustomize(&Version, v3.OKTAConfig{}, configSchema).
 		MustImport(&Version, v3.SamlConfigTestInput{}).
 		MustImport(&Version, v3.SamlConfigTestOutput{})
 }
@@ -495,8 +539,28 @@ func logTypes(schema *types.Schemas) *types.Schemas {
 			m.DisplayName{}).
 		AddMapperForType(&Version, v3.ProjectLogging{},
 			m.DisplayName{}).
-		MustImport(&Version, v3.ClusterLogging{}).
-		MustImport(&Version, v3.ProjectLogging{})
+		MustImport(&Version, v3.ClusterTestInput{}).
+		MustImport(&Version, v3.ProjectTestInput{}).
+		MustImportAndCustomize(&Version, v3.ClusterLogging{}, func(schema *types.Schema) {
+			schema.CollectionActions = map[string]types.Action{
+				"test": {
+					Input: "clusterTestInput",
+				},
+				"dryRun": {
+					Input: "clusterTestInput",
+				},
+			}
+		}).
+		MustImportAndCustomize(&Version, v3.ProjectLogging{}, func(schema *types.Schema) {
+			schema.CollectionActions = map[string]types.Action{
+				"test": {
+					Input: "projectTestInput",
+				},
+				"dryRun": {
+					Input: "projectTestInput",
+				},
+			}
+		})
 }
 
 func globalTypes(schema *types.Schemas) *types.Schemas {
@@ -609,8 +673,20 @@ func clusterCatalogTypes(schemas *types.Schemas) *types.Schemas {
 func multiClusterAppTypes(schemas *types.Schemas) *types.Schemas {
 	return schemas.
 		AddMapperForType(&Version, v3.MultiClusterApp{}, m.Drop{Field: "namespaceId"}).
+		AddMapperForType(&Version, v3.MultiClusterAppRevision{}, m.Drop{Field: "namespaceId"}).
+		AddMapperForType(&Version, v3.Member{}, m.Drop{Field: "userName"}, m.Drop{Field: "displayName"}).
 		MustImport(&Version, v3.MultiClusterApp{}).
-		MustImport(&Version, v3.Target{})
+		MustImport(&Version, v3.Target{}).
+		MustImport(&Version, v3.UpgradeStrategy{}).
+		MustImport(&Version, v3.MultiClusterAppRollbackInput{}).
+		MustImport(&Version, v3.MultiClusterAppRevision{}).
+		MustImportAndCustomize(&Version, v3.MultiClusterApp{}, func(schema *types.Schema) {
+			schema.ResourceActions = map[string]types.Action{
+				"rollback": {
+					Input: "multiClusterAppRollbackInput",
+				},
+			}
+		})
 }
 
 func globalDNSTypes(schemas *types.Schemas) *types.Schemas {
@@ -690,4 +766,8 @@ func monitorTypes(schemas *types.Schemas) *types.Schemas {
 			}
 		})
 
+}
+
+func etcdBackupTypes(schemas *types.Schemas) *types.Schemas {
+	return schemas.MustImport(&Version, v3.EtcdBackup{})
 }

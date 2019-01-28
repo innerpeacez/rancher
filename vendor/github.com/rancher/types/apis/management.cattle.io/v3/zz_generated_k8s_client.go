@@ -36,6 +36,8 @@ type Interface interface {
 	ClusterRegistrationTokensGetter
 	CatalogsGetter
 	TemplatesGetter
+	CatalogTemplatesGetter
+	CatalogTemplateVersionsGetter
 	TemplateVersionsGetter
 	TemplateContentsGetter
 	GroupsGetter
@@ -64,15 +66,20 @@ type Interface interface {
 	ProjectCatalogsGetter
 	ClusterCatalogsGetter
 	MultiClusterAppsGetter
+	MultiClusterAppRevisionsGetter
 	GlobalDNSsGetter
 	GlobalDNSProvidersGetter
 	KontainerDriversGetter
+	EtcdBackupsGetter
 	MonitorMetricsGetter
 	ClusterMonitorGraphsGetter
 	ProjectMonitorGraphsGetter
+	CloudCredentialsGetter
 }
 
 type Clients struct {
+	Interface Interface
+
 	NodePool                                NodePoolClient
 	Node                                    NodeClient
 	NodeDriver                              NodeDriverClient
@@ -89,6 +96,8 @@ type Clients struct {
 	ClusterRegistrationToken                ClusterRegistrationTokenClient
 	Catalog                                 CatalogClient
 	Template                                TemplateClient
+	CatalogTemplate                         CatalogTemplateClient
+	CatalogTemplateVersion                  CatalogTemplateVersionClient
 	TemplateVersion                         TemplateVersionClient
 	TemplateContent                         TemplateContentClient
 	Group                                   GroupClient
@@ -117,12 +126,15 @@ type Clients struct {
 	ProjectCatalog                          ProjectCatalogClient
 	ClusterCatalog                          ClusterCatalogClient
 	MultiClusterApp                         MultiClusterAppClient
+	MultiClusterAppRevision                 MultiClusterAppRevisionClient
 	GlobalDNS                               GlobalDNSClient
 	GlobalDNSProvider                       GlobalDNSProviderClient
 	KontainerDriver                         KontainerDriverClient
+	EtcdBackup                              EtcdBackupClient
 	MonitorMetric                           MonitorMetricClient
 	ClusterMonitorGraph                     ClusterMonitorGraphClient
 	ProjectMonitorGraph                     ProjectMonitorGraphClient
+	CloudCredential                         CloudCredentialClient
 }
 
 type Client struct {
@@ -146,6 +158,8 @@ type Client struct {
 	clusterRegistrationTokenControllers                map[string]ClusterRegistrationTokenController
 	catalogControllers                                 map[string]CatalogController
 	templateControllers                                map[string]TemplateController
+	catalogTemplateControllers                         map[string]CatalogTemplateController
+	catalogTemplateVersionControllers                  map[string]CatalogTemplateVersionController
 	templateVersionControllers                         map[string]TemplateVersionController
 	templateContentControllers                         map[string]TemplateContentController
 	groupControllers                                   map[string]GroupController
@@ -174,12 +188,15 @@ type Client struct {
 	projectCatalogControllers                          map[string]ProjectCatalogController
 	clusterCatalogControllers                          map[string]ClusterCatalogController
 	multiClusterAppControllers                         map[string]MultiClusterAppController
+	multiClusterAppRevisionControllers                 map[string]MultiClusterAppRevisionController
 	globalDnsControllers                               map[string]GlobalDNSController
 	globalDnsProviderControllers                       map[string]GlobalDNSProviderController
 	kontainerDriverControllers                         map[string]KontainerDriverController
+	etcdBackupControllers                              map[string]EtcdBackupController
 	monitorMetricControllers                           map[string]MonitorMetricController
 	clusterMonitorGraphControllers                     map[string]ClusterMonitorGraphController
 	projectMonitorGraphControllers                     map[string]ProjectMonitorGraphController
+	cloudCredentialControllers                         map[string]CloudCredentialController
 }
 
 func Factory(ctx context.Context, config rest.Config) (context.Context, controller.Starter, error) {
@@ -213,6 +230,7 @@ func NewClients(config rest.Config) (*Clients, error) {
 
 func NewClientsFromInterface(iface Interface) *Clients {
 	return &Clients{
+		Interface: iface,
 
 		NodePool: &nodePoolClient2{
 			iface: iface.NodePools(""),
@@ -261,6 +279,12 @@ func NewClientsFromInterface(iface Interface) *Clients {
 		},
 		Template: &templateClient2{
 			iface: iface.Templates(""),
+		},
+		CatalogTemplate: &catalogTemplateClient2{
+			iface: iface.CatalogTemplates(""),
+		},
+		CatalogTemplateVersion: &catalogTemplateVersionClient2{
+			iface: iface.CatalogTemplateVersions(""),
 		},
 		TemplateVersion: &templateVersionClient2{
 			iface: iface.TemplateVersions(""),
@@ -346,6 +370,9 @@ func NewClientsFromInterface(iface Interface) *Clients {
 		MultiClusterApp: &multiClusterAppClient2{
 			iface: iface.MultiClusterApps(""),
 		},
+		MultiClusterAppRevision: &multiClusterAppRevisionClient2{
+			iface: iface.MultiClusterAppRevisions(""),
+		},
 		GlobalDNS: &globalDnsClient2{
 			iface: iface.GlobalDNSs(""),
 		},
@@ -355,6 +382,9 @@ func NewClientsFromInterface(iface Interface) *Clients {
 		KontainerDriver: &kontainerDriverClient2{
 			iface: iface.KontainerDrivers(""),
 		},
+		EtcdBackup: &etcdBackupClient2{
+			iface: iface.EtcdBackups(""),
+		},
 		MonitorMetric: &monitorMetricClient2{
 			iface: iface.MonitorMetrics(""),
 		},
@@ -363,6 +393,9 @@ func NewClientsFromInterface(iface Interface) *Clients {
 		},
 		ProjectMonitorGraph: &projectMonitorGraphClient2{
 			iface: iface.ProjectMonitorGraphs(""),
+		},
+		CloudCredential: &cloudCredentialClient2{
+			iface: iface.CloudCredentials(""),
 		},
 	}
 }
@@ -396,6 +429,8 @@ func NewForConfig(config rest.Config) (Interface, error) {
 		clusterRegistrationTokenControllers:                map[string]ClusterRegistrationTokenController{},
 		catalogControllers:                                 map[string]CatalogController{},
 		templateControllers:                                map[string]TemplateController{},
+		catalogTemplateControllers:                         map[string]CatalogTemplateController{},
+		catalogTemplateVersionControllers:                  map[string]CatalogTemplateVersionController{},
 		templateVersionControllers:                         map[string]TemplateVersionController{},
 		templateContentControllers:                         map[string]TemplateContentController{},
 		groupControllers:                                   map[string]GroupController{},
@@ -424,12 +459,15 @@ func NewForConfig(config rest.Config) (Interface, error) {
 		projectCatalogControllers:                          map[string]ProjectCatalogController{},
 		clusterCatalogControllers:                          map[string]ClusterCatalogController{},
 		multiClusterAppControllers:                         map[string]MultiClusterAppController{},
+		multiClusterAppRevisionControllers:                 map[string]MultiClusterAppRevisionController{},
 		globalDnsControllers:                               map[string]GlobalDNSController{},
 		globalDnsProviderControllers:                       map[string]GlobalDNSProviderController{},
 		kontainerDriverControllers:                         map[string]KontainerDriverController{},
+		etcdBackupControllers:                              map[string]EtcdBackupController{},
 		monitorMetricControllers:                           map[string]MonitorMetricController{},
 		clusterMonitorGraphControllers:                     map[string]ClusterMonitorGraphController{},
 		projectMonitorGraphControllers:                     map[string]ProjectMonitorGraphController{},
+		cloudCredentialControllers:                         map[string]CloudCredentialController{},
 	}, nil
 }
 
@@ -647,6 +685,32 @@ type TemplatesGetter interface {
 func (c *Client) Templates(namespace string) TemplateInterface {
 	objectClient := objectclient.NewObjectClient(namespace, c.restClient, &TemplateResource, TemplateGroupVersionKind, templateFactory{})
 	return &templateClient{
+		ns:           namespace,
+		client:       c,
+		objectClient: objectClient,
+	}
+}
+
+type CatalogTemplatesGetter interface {
+	CatalogTemplates(namespace string) CatalogTemplateInterface
+}
+
+func (c *Client) CatalogTemplates(namespace string) CatalogTemplateInterface {
+	objectClient := objectclient.NewObjectClient(namespace, c.restClient, &CatalogTemplateResource, CatalogTemplateGroupVersionKind, catalogTemplateFactory{})
+	return &catalogTemplateClient{
+		ns:           namespace,
+		client:       c,
+		objectClient: objectClient,
+	}
+}
+
+type CatalogTemplateVersionsGetter interface {
+	CatalogTemplateVersions(namespace string) CatalogTemplateVersionInterface
+}
+
+func (c *Client) CatalogTemplateVersions(namespace string) CatalogTemplateVersionInterface {
+	objectClient := objectclient.NewObjectClient(namespace, c.restClient, &CatalogTemplateVersionResource, CatalogTemplateVersionGroupVersionKind, catalogTemplateVersionFactory{})
+	return &catalogTemplateVersionClient{
 		ns:           namespace,
 		client:       c,
 		objectClient: objectClient,
@@ -1017,6 +1081,19 @@ func (c *Client) MultiClusterApps(namespace string) MultiClusterAppInterface {
 	}
 }
 
+type MultiClusterAppRevisionsGetter interface {
+	MultiClusterAppRevisions(namespace string) MultiClusterAppRevisionInterface
+}
+
+func (c *Client) MultiClusterAppRevisions(namespace string) MultiClusterAppRevisionInterface {
+	objectClient := objectclient.NewObjectClient(namespace, c.restClient, &MultiClusterAppRevisionResource, MultiClusterAppRevisionGroupVersionKind, multiClusterAppRevisionFactory{})
+	return &multiClusterAppRevisionClient{
+		ns:           namespace,
+		client:       c,
+		objectClient: objectClient,
+	}
+}
+
 type GlobalDNSsGetter interface {
 	GlobalDNSs(namespace string) GlobalDNSInterface
 }
@@ -1056,6 +1133,19 @@ func (c *Client) KontainerDrivers(namespace string) KontainerDriverInterface {
 	}
 }
 
+type EtcdBackupsGetter interface {
+	EtcdBackups(namespace string) EtcdBackupInterface
+}
+
+func (c *Client) EtcdBackups(namespace string) EtcdBackupInterface {
+	objectClient := objectclient.NewObjectClient(namespace, c.restClient, &EtcdBackupResource, EtcdBackupGroupVersionKind, etcdBackupFactory{})
+	return &etcdBackupClient{
+		ns:           namespace,
+		client:       c,
+		objectClient: objectClient,
+	}
+}
+
 type MonitorMetricsGetter interface {
 	MonitorMetrics(namespace string) MonitorMetricInterface
 }
@@ -1089,6 +1179,19 @@ type ProjectMonitorGraphsGetter interface {
 func (c *Client) ProjectMonitorGraphs(namespace string) ProjectMonitorGraphInterface {
 	objectClient := objectclient.NewObjectClient(namespace, c.restClient, &ProjectMonitorGraphResource, ProjectMonitorGraphGroupVersionKind, projectMonitorGraphFactory{})
 	return &projectMonitorGraphClient{
+		ns:           namespace,
+		client:       c,
+		objectClient: objectClient,
+	}
+}
+
+type CloudCredentialsGetter interface {
+	CloudCredentials(namespace string) CloudCredentialInterface
+}
+
+func (c *Client) CloudCredentials(namespace string) CloudCredentialInterface {
+	objectClient := objectclient.NewObjectClient(namespace, c.restClient, &CloudCredentialResource, CloudCredentialGroupVersionKind, cloudCredentialFactory{})
+	return &cloudCredentialClient{
 		ns:           namespace,
 		client:       c,
 		objectClient: objectClient,

@@ -12,6 +12,7 @@ import (
 	kcluster "github.com/rancher/kontainer-engine/cluster"
 	"github.com/rancher/rancher/pkg/controllers/user/nslabels"
 	"github.com/rancher/rancher/pkg/monitoring"
+	"github.com/rancher/rancher/pkg/namespace"
 	nodeutil "github.com/rancher/rancher/pkg/node"
 	"github.com/rancher/rancher/pkg/ref"
 	"github.com/rancher/rancher/pkg/settings"
@@ -42,7 +43,7 @@ type etcdTLSConfig struct {
 }
 
 type appHandler struct {
-	cattleTemplateVersionsGetter mgmtv3.TemplateVersionsGetter
+	cattleTemplateVersionsGetter mgmtv3.CatalogTemplateVersionsGetter
 	cattleProjectsGetter         mgmtv3.ProjectsGetter
 	cattleAppsGetter             projectv3.AppsGetter
 	cattleCoreClient             corev1.Interface
@@ -95,7 +96,7 @@ func (ch *clusterHandler) sync(key string, cluster *mgmtv3.Cluster) (runtime.Obj
 }
 
 func (ch *clusterHandler) syncSystemMonitor(cluster *mgmtv3.Cluster) (err error) {
-	return monitoring.SyncServiceMonitor(cluster, ch.app.agentCoreClient, ch.app.agentRBACClient, ch.app.cattleAppsGetter, ch.app.cattleProjectsGetter, ch.app.cattleTemplateVersionsGetter.TemplateVersions(metav1.NamespaceAll))
+	return monitoring.SyncServiceMonitor(cluster, ch.app.agentCoreClient, ch.app.agentRBACClient, ch.app.cattleAppsGetter, ch.app.cattleProjectsGetter, ch.app.cattleTemplateVersionsGetter.CatalogTemplateVersions(namespace.GlobalNamespace))
 }
 
 func (ch *clusterHandler) syncClusterMonitoring(cluster *mgmtv3.Cluster) error {
@@ -349,7 +350,6 @@ func (ah *appHandler) grantClusterMonitoringPermissions(appName, appTargetNamesp
 	appServiceAccountName := appName
 	appClusterRoleName := appServiceAccountName
 	appClusterRoleBindingName := appServiceAccountName + "-binding"
-	ownedLabels := monitoring.OwnedLabels(appName, appTargetNamespace, monitoring.ClusterLevel)
 
 	err := stream(
 		// detect ServiceAccount (the name as same as App)
@@ -360,14 +360,14 @@ func (ah *appHandler) grantClusterMonitoringPermissions(appName, appTargetNamesp
 			}
 			if appServiceAccount.Name == appServiceAccountName {
 				if appServiceAccount.DeletionTimestamp != nil {
-					return errors.New(fmt.Sprintf("stale %q ServiceAccount in %q Namespace is still on terminating", appServiceAccountName, appTargetNamespace))
+					return fmt.Errorf("stale %q ServiceAccount in %q Namespace is still on terminating", appServiceAccountName, appTargetNamespace)
 				}
 			} else {
 				appServiceAccount = &k8scorev1.ServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      appServiceAccountName,
 						Namespace: appTargetNamespace,
-						Labels:    ownedLabels,
+						Labels:    monitoring.OwnedLabels(appName, appTargetNamespace, monitoring.ClusterLevel),
 					},
 				}
 
@@ -453,7 +453,7 @@ func (ah *appHandler) grantClusterMonitoringPermissions(appName, appTargetNamesp
 
 			if appClusterRole.Name == appClusterRoleName {
 				if appClusterRole.DeletionTimestamp != nil {
-					return errors.New(fmt.Sprintf("stale %q ClusterRole is still on terminating", appClusterRoleName))
+					return fmt.Errorf("stale %q ClusterRole is still on terminating", appClusterRoleName)
 				}
 
 				// ensure
@@ -466,7 +466,7 @@ func (ah *appHandler) grantClusterMonitoringPermissions(appName, appTargetNamesp
 				appClusterRole = &k8srbacv1.ClusterRole{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   appClusterRoleName,
-						Labels: ownedLabels,
+						Labels: monitoring.OwnedLabels(appName, appTargetNamespace, monitoring.ClusterLevel),
 					},
 					Rules: rules,
 				}
@@ -487,13 +487,13 @@ func (ah *appHandler) grantClusterMonitoringPermissions(appName, appTargetNamesp
 			}
 			if appClusterRoleBinding.Name == appClusterRoleBindingName {
 				if appClusterRoleBinding.DeletionTimestamp != nil {
-					return errors.New(fmt.Sprintf("stale %q ClusterRoleBinding is still on terminating", appClusterRoleBindingName))
+					return fmt.Errorf("stale %q ClusterRoleBinding is still on terminating", appClusterRoleBindingName)
 				}
 			} else {
 				appClusterRoleBinding = &k8srbacv1.ClusterRoleBinding{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   appClusterRoleBindingName,
-						Labels: ownedLabels,
+						Labels: monitoring.OwnedLabels(appName, appTargetNamespace, monitoring.ClusterLevel),
 					},
 					Subjects: []k8srbacv1.Subject{
 						{

@@ -39,6 +39,7 @@ var K8sDockerVersions = map[string][]string{
 	"1.10": {"1.11.x", "1.12.x", "1.13.x", "17.03.x"},
 	"1.11": {"1.11.x", "1.12.x", "1.13.x", "17.03.x"},
 	"1.12": {"1.11.x", "1.12.x", "1.13.x", "17.03.x", "17.06.x", "17.09.x", "18.06.x"},
+	"1.13": {"1.11.x", "1.12.x", "1.13.x", "17.03.x", "17.06.x", "17.09.x", "18.06.x"},
 }
 
 type dockerConfig struct {
@@ -223,7 +224,7 @@ func UseLocalOrPull(ctx context.Context, dClient *client.Client, hostname string
 }
 
 func RemoveContainer(ctx context.Context, dClient *client.Client, hostname string, containerName string) error {
-	err := dClient.ContainerRemove(ctx, containerName, types.ContainerRemoveOptions{Force: true})
+	err := dClient.ContainerRemove(ctx, containerName, types.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 	if err != nil {
 		return fmt.Errorf("Can't remove Docker container [%s] for host [%s]: %v", containerName, hostname, err)
 	}
@@ -483,4 +484,18 @@ func DoRestartContainer(ctx context.Context, dClient *client.Client, containerNa
 	}
 	log.Infof(ctx, "[restart/%s] Successfully restarted container on host [%s]", containerName, hostname)
 	return nil
+}
+
+func GetContainerOutput(ctx context.Context, dClient *client.Client, containerName, hostname string) (int64, string, string, error) {
+	status, err := WaitForContainer(ctx, dClient, hostname, containerName)
+	if err != nil {
+		return 1, "", "", err
+	}
+
+	stderr, stdout, err := GetContainerLogsStdoutStderr(ctx, dClient, containerName, "1", false)
+	if err != nil {
+		return 1, "", "", err
+	}
+
+	return status, stdout, stderr, nil
 }

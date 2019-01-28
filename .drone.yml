@@ -7,13 +7,15 @@ pipeline:
     - /var/run/docker.sock:/var/run/docker.sock
     commands:
     - dapper ci
+    when:
+      event: [ push, pull_request, tag ]
 
   stage-binaries:
     image: rancher/dapper:1.11.2
     commands:
     - cp -r ./bin/* ./package/
     when:
-      branch: [master, release/*]
+      branch: [master, release/*, alpha]
       event: [push,tag]
 
   docker-publish-master:
@@ -58,7 +60,7 @@ pipeline:
     build_args:
     - VERSION=${DRONE_TAG}
     when:
-      branch: [master, release/*]
+      branch: [master, release/*, alpha]
       event: tag
 
   docker-publish-agent:
@@ -73,7 +75,7 @@ pipeline:
     build_args:
     - VERSION=${DRONE_TAG}
     when:
-      branch: [master, release/*]
+      branch: [master, release/*, alpha]
       event: tag
 
   github_binary_prerelease:
@@ -85,10 +87,10 @@ pipeline:
      - sha256
     secrets: [github_token]
     when:
-      branch: [master, release/*]
+      branch: [master, release/*, alpha]
       event: tag
       ref:
-        include: [ refs/tags/*rc* ]
+        include: [ refs/tags/*rc*, refs/tags/*alpha* ]
 
   github_binary_release:
     image: plugins/github-release
@@ -101,4 +103,27 @@ pipeline:
       branch: [master, release/*]
       event: tag
       ref:
-        exclude: [ refs/tags/*rc* ]
+        exclude: [ refs/tags/*rc*, refs/tags/*alpha* ]
+
+  chart-promote:
+    image: rancher/dapper:1.11.2
+    commands:
+      - dapper charts/copy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    when:
+      event: deployment
+      environment: promote-stable
+
+  chart-publish:
+    image: plugins/gcs
+    source: bin/chart
+    target: releases.rancher.com/server-charts
+    acl:
+      - allUsers:READER
+    cache_control: public,no-cache,proxy-revalidate
+    secrets:
+      - source: google_auth_key
+        target: GOOGLE_CREDENTIALS
+    when:
+      event: [ tag, deployment ]

@@ -15,13 +15,8 @@ import (
 	"k8s.io/client-go/util/cert"
 )
 
-type RotateCertificatesFlags struct {
-	RotateCACerts    bool
-	RotateComponents []string
-}
-
 func SetUpAuthentication(ctx context.Context, kubeCluster, currentCluster *Cluster, fullState *FullState) error {
-	if kubeCluster.Authentication.Strategy == X509AuthenticationProvider {
+	if kubeCluster.AuthnStrategies[AuthnX509Provider] {
 		kubeCluster.Certificates = fullState.DesiredState.CertificatesBundle
 		return nil
 	}
@@ -38,7 +33,7 @@ func regenerateAPICertificate(c *Cluster, certificates map[string]pki.Certificat
 	if err != nil {
 		return nil, err
 	}
-	certificates[pki.KubeAPICertName] = pki.ToCertObject(pki.KubeAPICertName, "", "", kubeAPICert, kubeAPIKey)
+	certificates[pki.KubeAPICertName] = pki.ToCertObject(pki.KubeAPICertName, "", "", kubeAPICert, kubeAPIKey, nil)
 	return certificates, nil
 }
 
@@ -119,7 +114,7 @@ func GetClusterCertsFromKubernetes(ctx context.Context, kubeCluster *Cluster) (m
 	kubeAPICert := certMap[pki.KubeAPICertName]
 	if certMap[pki.ServiceAccountTokenKeyName].Key == nil {
 		log.Infof(ctx, "[certificates] Creating service account token key")
-		certMap[pki.ServiceAccountTokenKeyName] = pki.ToCertObject(pki.ServiceAccountTokenKeyName, pki.ServiceAccountTokenKeyName, "", kubeAPICert.Certificate, kubeAPICert.Key)
+		certMap[pki.ServiceAccountTokenKeyName] = pki.ToCertObject(pki.ServiceAccountTokenKeyName, pki.ServiceAccountTokenKeyName, "", kubeAPICert.Certificate, kubeAPICert.Key, nil)
 	}
 	log.Infof(ctx, "[certificates] Successfully fetched Cluster certificates from Kubernetes")
 	return certMap, nil
@@ -142,7 +137,7 @@ func regenerateAPIAggregationCerts(c *Cluster, certificates map[string]pki.Certi
 	if err != nil {
 		return nil, err
 	}
-	certificates[pki.RequestHeaderCACertName] = pki.ToCertObject(pki.RequestHeaderCACertName, "", "", requestHeaderCACrt, requestHeaderCAKey)
+	certificates[pki.RequestHeaderCACertName] = pki.ToCertObject(pki.RequestHeaderCACertName, "", "", requestHeaderCACrt, requestHeaderCAKey, nil)
 
 	//generate API server proxy client key and certs
 	logrus.Debugf("[certificates] Regenerating Kubernetes API server proxy client certificates")
@@ -150,11 +145,11 @@ func regenerateAPIAggregationCerts(c *Cluster, certificates map[string]pki.Certi
 	if err != nil {
 		return nil, err
 	}
-	certificates[pki.APIProxyClientCertName] = pki.ToCertObject(pki.APIProxyClientCertName, "", "", apiserverProxyClientCrt, apiserverProxyClientKey)
+	certificates[pki.APIProxyClientCertName] = pki.ToCertObject(pki.APIProxyClientCertName, "", "", apiserverProxyClientCrt, apiserverProxyClientKey, nil)
 	return certificates, nil
 }
 
-func RotateRKECertificates(ctx context.Context, c *Cluster, flags ExternalFlags, rotateflags RotateCertificatesFlags, clusterState *FullState) error {
+func RotateRKECertificates(ctx context.Context, c *Cluster, flags ExternalFlags, clusterState *FullState) error {
 	var (
 		serviceAccountTokenKey string
 	)
@@ -166,14 +161,15 @@ func RotateRKECertificates(ctx context.Context, c *Cluster, flags ExternalFlags,
 		services.KubeletContainerName:        pki.GenerateKubeNodeCertificate,
 		services.EtcdContainerName:           pki.GenerateEtcdCertificates,
 	}
-	if rotateflags.RotateCACerts {
+	rotateFlags := c.RancherKubernetesEngineConfig.RotateCertificates
+	if rotateFlags.CACertificates {
 		// rotate CA cert and RequestHeader CA cert
 		if err := pki.GenerateRKECACerts(ctx, c.Certificates, flags.ClusterFilePath, flags.ConfigDir); err != nil {
 			return err
 		}
-		rotateflags.RotateComponents = nil
+		rotateFlags.Services = nil
 	}
-	for _, k8sComponent := range rotateflags.RotateComponents {
+	for _, k8sComponent := range rotateFlags.Services {
 		genFunc := componentsCertsFuncMap[k8sComponent]
 		if genFunc != nil {
 			if err := genFunc(ctx, c.Certificates, c.RancherKubernetesEngineConfig, flags.ClusterFilePath, flags.ConfigDir, true); err != nil {
@@ -181,7 +177,8 @@ func RotateRKECertificates(ctx context.Context, c *Cluster, flags ExternalFlags,
 			}
 		}
 	}
-	if len(rotateflags.RotateComponents) == 0 {
+	// to handle kontainer engine sending empty string for services
+	if len(rotateFlags.Services) == 0 || (len(rotateFlags.Services) == 1 && rotateFlags.Services[0] == "") {
 		// do not rotate service account token
 		if c.Certificates[pki.ServiceAccountTokenKeyName].Key != nil {
 			serviceAccountTokenKey = string(cert.EncodePrivateKeyPEM(c.Certificates[pki.ServiceAccountTokenKeyName].Key))
@@ -199,17 +196,10 @@ func RotateRKECertificates(ctx context.Context, c *Cluster, flags ExternalFlags,
 				pki.ServiceAccountTokenKeyName,
 				"",
 				c.Certificates[pki.ServiceAccountTokenKeyName].Certificate,
-				privateKey.(*rsa.PrivateKey))
+				privateKey.(*rsa.PrivateKey), nil)
 		}
 	}
 	clusterState.DesiredState.CertificatesBundle = c.Certificates
 	clusterState.DesiredState.RancherKubernetesEngineConfig = &c.RancherKubernetesEngineConfig
 	return nil
-}
-
-func GetRotateCertsFlags(rotateCACerts bool, components []string) RotateCertificatesFlags {
-	return RotateCertificatesFlags{
-		RotateCACerts:    rotateCACerts,
-		RotateComponents: components,
-	}
 }

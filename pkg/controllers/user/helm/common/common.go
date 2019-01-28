@@ -14,25 +14,39 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/rancher/rancher/pkg/namespace"
 	"github.com/rancher/types/apis/project.cattle.io/v3"
 )
 
 const (
-	base       = 32768
-	end        = 61000
-	tillerName = "tiller"
-	helmName   = "helm"
+	base            = 32768
+	end             = 61000
+	tillerName      = "tiller"
+	helmName        = "helm"
+	forceUpgradeStr = "--force"
 )
 
-func ParseExternalID(externalID string) (string, error) {
+func ParseExternalID(externalID string) (string, string, error) {
+	var templateVersionNamespace, catalog string
 	values, err := url.Parse(externalID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	catalog := values.Query().Get("catalog")
+	catalogWithNamespace := values.Query().Get("catalog")
 	template := values.Query().Get("template")
 	version := values.Query().Get("version")
-	return strings.Join([]string{catalog, template, version}, "-"), nil
+	split := strings.SplitN(catalogWithNamespace, "/", 2)
+	if len(split) == 2 {
+		templateVersionNamespace = split[0]
+		catalog = split[1]
+	}
+	//pre-upgrade setups will have global catalogs, where externalId field on templateversions won't have namespace.
+	// since these are global catalogs, we can default to global namespace
+	if templateVersionNamespace == "" {
+		templateVersionNamespace = namespace.GlobalNamespace
+		catalog = catalogWithNamespace
+	}
+	return strings.Join([]string{catalog, template, version}, "-"), templateVersionNamespace, nil
 }
 
 // StartTiller start tiller server and return the listening address of the grpc address
@@ -78,6 +92,10 @@ func InstallCharts(rootDir, port string, obj *v3.App) error {
 	commands := make([]string, 0)
 	commands = append([]string{"upgrade", "--install", "--namespace", obj.Spec.TargetNamespace, obj.Name}, setValues...)
 	commands = append(commands, rootDir)
+
+	if v3.AppConditionForceUpgrade.IsUnknown(obj) {
+		commands = append(commands, forceUpgradeStr)
+	}
 
 	cmd := exec.Command(helmName, commands...)
 	cmd.Env = []string{fmt.Sprintf("%s=%s", "HELM_HOST", "127.0.0.1:"+port)}

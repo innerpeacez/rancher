@@ -13,6 +13,7 @@ const (
 	ClusterFieldAppliedEnableNetworkPolicy           = "appliedEnableNetworkPolicy"
 	ClusterFieldAppliedPodSecurityPolicyTemplateName = "appliedPodSecurityPolicyTemplateId"
 	ClusterFieldAppliedSpec                          = "appliedSpec"
+	ClusterFieldAuthImage                            = "authImage"
 	ClusterFieldCACert                               = "caCert"
 	ClusterFieldCapabilities                         = "capabilities"
 	ClusterFieldCapacity                             = "capacity"
@@ -24,6 +25,7 @@ const (
 	ClusterFieldDefaultPodSecurityPolicyTemplateID   = "defaultPodSecurityPolicyTemplateId"
 	ClusterFieldDescription                          = "description"
 	ClusterFieldDesiredAgentImage                    = "desiredAgentImage"
+	ClusterFieldDesiredAuthImage                     = "desiredAuthImage"
 	ClusterFieldDockerRootDir                        = "dockerRootDir"
 	ClusterFieldDriver                               = "driver"
 	ClusterFieldEnableClusterAlerting                = "enableClusterAlerting"
@@ -34,6 +36,7 @@ const (
 	ClusterFieldInternal                             = "internal"
 	ClusterFieldLabels                               = "labels"
 	ClusterFieldLimits                               = "limits"
+	ClusterFieldLocalClusterAuthEndpoint             = "localClusterAuthEndpoint"
 	ClusterFieldMonitoringStatus                     = "monitoringStatus"
 	ClusterFieldName                                 = "name"
 	ClusterFieldOwnerReferences                      = "ownerReferences"
@@ -56,6 +59,7 @@ type Cluster struct {
 	AppliedEnableNetworkPolicy           bool                           `json:"appliedEnableNetworkPolicy,omitempty" yaml:"appliedEnableNetworkPolicy,omitempty"`
 	AppliedPodSecurityPolicyTemplateName string                         `json:"appliedPodSecurityPolicyTemplateId,omitempty" yaml:"appliedPodSecurityPolicyTemplateId,omitempty"`
 	AppliedSpec                          *ClusterSpec                   `json:"appliedSpec,omitempty" yaml:"appliedSpec,omitempty"`
+	AuthImage                            string                         `json:"authImage,omitempty" yaml:"authImage,omitempty"`
 	CACert                               string                         `json:"caCert,omitempty" yaml:"caCert,omitempty"`
 	Capabilities                         *Capabilities                  `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 	Capacity                             map[string]string              `json:"capacity,omitempty" yaml:"capacity,omitempty"`
@@ -67,6 +71,7 @@ type Cluster struct {
 	DefaultPodSecurityPolicyTemplateID   string                         `json:"defaultPodSecurityPolicyTemplateId,omitempty" yaml:"defaultPodSecurityPolicyTemplateId,omitempty"`
 	Description                          string                         `json:"description,omitempty" yaml:"description,omitempty"`
 	DesiredAgentImage                    string                         `json:"desiredAgentImage,omitempty" yaml:"desiredAgentImage,omitempty"`
+	DesiredAuthImage                     string                         `json:"desiredAuthImage,omitempty" yaml:"desiredAuthImage,omitempty"`
 	DockerRootDir                        string                         `json:"dockerRootDir,omitempty" yaml:"dockerRootDir,omitempty"`
 	Driver                               string                         `json:"driver,omitempty" yaml:"driver,omitempty"`
 	EnableClusterAlerting                bool                           `json:"enableClusterAlerting,omitempty" yaml:"enableClusterAlerting,omitempty"`
@@ -77,6 +82,7 @@ type Cluster struct {
 	Internal                             bool                           `json:"internal,omitempty" yaml:"internal,omitempty"`
 	Labels                               map[string]string              `json:"labels,omitempty" yaml:"labels,omitempty"`
 	Limits                               map[string]string              `json:"limits,omitempty" yaml:"limits,omitempty"`
+	LocalClusterAuthEndpoint             *LocalClusterAuthEndpoint      `json:"localClusterAuthEndpoint,omitempty" yaml:"localClusterAuthEndpoint,omitempty"`
 	MonitoringStatus                     *MonitoringStatus              `json:"monitoringStatus,omitempty" yaml:"monitoringStatus,omitempty"`
 	Name                                 string                         `json:"name,omitempty" yaml:"name,omitempty"`
 	OwnerReferences                      []OwnerReference               `json:"ownerReferences,omitempty" yaml:"ownerReferences,omitempty"`
@@ -108,6 +114,8 @@ type ClusterOperations interface {
 	ByID(id string) (*Cluster, error)
 	Delete(container *Cluster) error
 
+	ActionBackupEtcd(resource *Cluster) error
+
 	ActionDisableMonitoring(resource *Cluster) error
 
 	ActionEnableMonitoring(resource *Cluster, input *MonitoringInput) error
@@ -117,6 +125,10 @@ type ClusterOperations interface {
 	ActionGenerateKubeconfig(resource *Cluster) (*GenerateKubeConfigOutput, error)
 
 	ActionImportYaml(resource *Cluster, input *ImportClusterYamlInput) (*ImportYamlOutput, error)
+
+	ActionRestoreFromEtcdBackup(resource *Cluster, input *RestoreFromEtcdBackupInput) error
+
+	ActionRotateCertificates(resource *Cluster, input *RotateCertificateInput) error
 }
 
 func newClusterClient(apiClient *Client) *ClusterClient {
@@ -170,6 +182,11 @@ func (c *ClusterClient) Delete(container *Cluster) error {
 	return c.apiClient.Ops.DoResourceDelete(ClusterType, &container.Resource)
 }
 
+func (c *ClusterClient) ActionBackupEtcd(resource *Cluster) error {
+	err := c.apiClient.Ops.DoAction(ClusterType, "backupEtcd", &resource.Resource, nil, nil)
+	return err
+}
+
 func (c *ClusterClient) ActionDisableMonitoring(resource *Cluster) error {
 	err := c.apiClient.Ops.DoAction(ClusterType, "disableMonitoring", &resource.Resource, nil, nil)
 	return err
@@ -196,4 +213,14 @@ func (c *ClusterClient) ActionImportYaml(resource *Cluster, input *ImportCluster
 	resp := &ImportYamlOutput{}
 	err := c.apiClient.Ops.DoAction(ClusterType, "importYaml", &resource.Resource, input, resp)
 	return resp, err
+}
+
+func (c *ClusterClient) ActionRestoreFromEtcdBackup(resource *Cluster, input *RestoreFromEtcdBackupInput) error {
+	err := c.apiClient.Ops.DoAction(ClusterType, "restoreFromEtcdBackup", &resource.Resource, input, nil)
+	return err
+}
+
+func (c *ClusterClient) ActionRotateCertificates(resource *Cluster, input *RotateCertificateInput) error {
+	err := c.apiClient.Ops.DoAction(ClusterType, "rotateCertificates", &resource.Resource, input, nil)
+	return err
 }

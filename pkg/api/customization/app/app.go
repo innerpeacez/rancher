@@ -1,10 +1,8 @@
 package app
 
 import (
-	"net/http"
-
 	"fmt"
-
+	"net/http"
 	"reflect"
 
 	"github.com/rancher/norman/api/access"
@@ -26,16 +24,14 @@ import (
 
 type Wrapper struct {
 	Clusters              v3.ClusterInterface
-	TemplateVersionClient v3.TemplateVersionInterface
+	TemplateVersionClient v3.CatalogTemplateVersionInterface
 	KubeConfigGetter      common.KubeConfigGetter
 	TemplateContentClient v3.TemplateContentInterface
 	AppGetter             pv3.AppsGetter
 }
 
 const (
-	appLabel       = "io.cattle.field/appId"
-	activeState    = "active"
-	deployingState = "deploying"
+	appLabel = "io.cattle.field/appId"
 )
 
 func Formatter(apiContext *types.APIContext, resource *types.RawResource) {
@@ -47,21 +43,6 @@ func Formatter(apiContext *types.APIContext, resource *types.RawResource) {
 			delete(status, "lastAppliedTemplate")
 		}
 	}
-	var workloads []projectv3.Workload
-	if err := access.List(apiContext, &projectschema.Version, projectv3.WorkloadType, &types.QueryOptions{}, &workloads); err == nil {
-		for _, w := range workloads {
-			_, appID := ref.Parse(resource.ID)
-			if w.WorkloadLabels[appLabel] == appID && w.State != activeState {
-				resource.Values["state"] = deployingState
-				resource.Values["transitioning"] = "yes"
-				transitionMsg := convert.ToString(resource.Values["transitioningMessage"])
-				if transitionMsg != "" {
-					transitionMsg += "; "
-				}
-				resource.Values["transitioningMessage"] = transitionMsg + fmt.Sprintf("Workload %s: %s", w.Name, w.TransitioningMessage)
-			}
-		}
-	}
 	delete(resource.Values, "appliedFiles")
 	delete(resource.Values, "files")
 }
@@ -71,11 +52,11 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 	if externalID == "" {
 		return nil
 	}
-	templateVersionID, err := hcommon.ParseExternalID(externalID)
+	templateVersionID, templateVersionNamespace, err := hcommon.ParseExternalID(externalID)
 	if err != nil {
 		return err
 	}
-	templateVersion, err := w.TemplateVersionClient.Get(templateVersionID, metav1.GetOptions{})
+	templateVersion, err := w.TemplateVersionClient.GetNamespaced(templateVersionNamespace, templateVersionID, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -109,6 +90,7 @@ func (w Wrapper) ActionHandler(actionName string, action *types.Action, apiConte
 	case "upgrade":
 		externalID := actionInput["externalId"]
 		answers := actionInput["answers"]
+		forceUpgrade := actionInput["forceUpgrade"]
 		_, namespace := ref.Parse(app.ProjectID)
 		obj, err := w.AppGetter.Apps(namespace).Get(app.Name, metav1.GetOptions{})
 		if err != nil {
@@ -124,12 +106,16 @@ func (w Wrapper) ActionHandler(actionName string, action *types.Action, apiConte
 			}
 		}
 		obj.Spec.ExternalID = convert.ToString(externalID)
+		if convert.ToBool(forceUpgrade) {
+			pv3.AppConditionForceUpgrade.Unknown(obj)
+		}
 		if _, err := w.AppGetter.Apps(namespace).Update(obj); err != nil {
 			return err
 		}
 		return nil
 	case "rollback":
 		revision := actionInput["revisionId"]
+		forceUpgrade := actionInput["forceUpgrade"]
 		if convert.ToString(revision) == "" {
 			return fmt.Errorf("revision is empty")
 		}
@@ -146,6 +132,9 @@ func (w Wrapper) ActionHandler(actionName string, action *types.Action, apiConte
 		}
 		obj.Spec.Answers = appRevision.Status.Answers
 		obj.Spec.ExternalID = appRevision.Status.ExternalID
+		if convert.ToBool(forceUpgrade) {
+			pv3.AppConditionForceUpgrade.Unknown(obj)
+		}
 		if _, err := w.AppGetter.Apps(namespace).Update(obj); err != nil {
 			return err
 		}

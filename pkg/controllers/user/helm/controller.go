@@ -15,6 +15,7 @@ import (
 
 	"github.com/rancher/rancher/pkg/controllers/management/compose/common"
 	"github.com/rancher/rancher/pkg/ref"
+	"github.com/rancher/rancher/pkg/systemaccount"
 	corev1 "github.com/rancher/types/apis/core/v1"
 	mgmtv3 "github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/apis/project.cattle.io/v3"
@@ -38,11 +39,12 @@ func Register(ctx context.Context, user *config.UserContext, kubeConfigGetter co
 	appClient := user.Management.Project.Apps("")
 	stackLifecycle := &Lifecycle{
 		KubeConfigGetter:      kubeConfigGetter,
+		SystemAccountManager:  systemaccount.NewManager(user.Management),
 		TokenClient:           user.Management.Management.Tokens(""),
 		UserClient:            user.Management.Management.Users(""),
 		UserManager:           user.Management.UserManager,
 		K8sClient:             user.K8sClient,
-		TemplateVersionClient: user.Management.Management.TemplateVersions(""),
+		TemplateVersionClient: user.Management.Management.CatalogTemplateVersions(""),
 		ListenConfigClient:    user.Management.Management.ListenConfigs(""),
 		ClusterName:           user.ClusterName,
 		TemplateContentClient: user.Management.Management.TemplateContents(""),
@@ -51,14 +53,17 @@ func Register(ctx context.Context, user *config.UserContext, kubeConfigGetter co
 		NsClient:              user.Core.Namespaces(""),
 	}
 	appClient.AddClusterScopedLifecycle(ctx, "helm-controller", user.ClusterName, stackLifecycle)
+
+	StartStateCalculator(ctx, user)
 }
 
 type Lifecycle struct {
 	KubeConfigGetter      common.KubeConfigGetter
+	SystemAccountManager  *systemaccount.Manager
 	UserManager           user.Manager
 	TokenClient           mgmtv3.TokenInterface
 	UserClient            mgmtv3.UserInterface
-	TemplateVersionClient mgmtv3.TemplateVersionInterface
+	TemplateVersionClient mgmtv3.CatalogTemplateVersionInterface
 	K8sClient             kubernetes.Interface
 	ListenConfigClient    mgmtv3.ListenConfigInterface
 	ClusterName           string
@@ -100,11 +105,17 @@ func (l *Lifecycle) Updated(obj *v3.App) (runtime.Object, error) {
 		}
 		if obj.Spec.ExternalID != "" {
 			if currentRevision.Status.ExternalID == obj.Spec.ExternalID && reflect.DeepEqual(currentRevision.Status.Answers, obj.Spec.Answers) {
+				if !v3.AppConditionForceUpgrade.IsTrue(obj) {
+					v3.AppConditionForceUpgrade.True(obj)
+				}
 				return obj, nil
 			}
 		}
 		if obj.Status.AppliedFiles != nil {
 			if reflect.DeepEqual(obj.Status.AppliedFiles, obj.Spec.Files) && reflect.DeepEqual(currentRevision.Status.Answers, obj.Spec.Answers) {
+				if !v3.AppConditionForceUpgrade.IsTrue(obj) {
+					v3.AppConditionForceUpgrade.True(obj)
+				}
 				return obj, nil
 			}
 		}
@@ -112,6 +123,9 @@ func (l *Lifecycle) Updated(obj *v3.App) (runtime.Object, error) {
 	result, err := l.DeployApp(obj)
 	if err != nil {
 		return result, err
+	}
+	if !v3.AppConditionForceUpgrade.IsTrue(obj) {
+		v3.AppConditionForceUpgrade.True(obj)
 	}
 	ns, err := l.NsClient.Get(obj.Spec.TargetNamespace, metav1.GetOptions{})
 	if err != nil && !errors.IsNotFound(err) {
@@ -142,6 +156,15 @@ func (l *Lifecycle) Updated(obj *v3.App) (runtime.Object, error) {
 }
 
 func (l *Lifecycle) DeployApp(obj *v3.App) (*v3.App, error) {
+	obj = obj.DeepCopy()
+	var err error
+	if !v3.AppConditionInstalled.IsUnknown(obj) {
+		v3.AppConditionInstalled.Unknown(obj)
+		obj, err = l.AppGetter.Apps("").Update(obj)
+		if err != nil {
+			return obj, err
+		}
+	}
 	newObj, err := v3.AppConditionInstalled.Do(obj, func() (runtime.Object, error) {
 		template, notes, tempDir, err := generateTemplates(obj, l.TemplateVersionClient, l.TemplateContentClient)
 		defer os.RemoveAll(tempDir)
@@ -175,7 +198,7 @@ func (l *Lifecycle) Remove(obj *v3.App) (runtime.Object, error) {
 		return obj, err
 	}
 	defer os.RemoveAll(tempDir)
-	kubeConfigPath, err := l.writeKubeConfig(obj, tempDir)
+	kubeConfigPath, err := l.writeKubeConfig(obj, tempDir, true)
 	if err != nil {
 		return obj, err
 	}
@@ -221,7 +244,7 @@ func (l *Lifecycle) Run(obj *v3.App, template, templateDir, notes string) error 
 		return err
 	}
 	defer os.RemoveAll(tempDir)
-	kubeConfigPath, err := l.writeKubeConfig(obj, tempDir)
+	kubeConfigPath, err := l.writeKubeConfig(obj, tempDir, false)
 	if err != nil {
 		return err
 	}
@@ -271,13 +294,18 @@ func (l *Lifecycle) createAppRevision(obj *v3.App, template, notes string, faile
 	return err
 }
 
-func (l *Lifecycle) writeKubeConfig(obj *v3.App, tempDir string) (string, error) {
+func (l *Lifecycle) writeKubeConfig(obj *v3.App, tempDir string, remove bool) (string, error) {
+	var token string
+
 	userID := obj.Annotations["field.cattle.io/creatorId"]
 	user, err := l.UserClient.Get(userID, metav1.GetOptions{})
-	if err != nil {
+	if err != nil && !errors.IsNotFound(err) {
 		return "", err
+	} else if errors.IsNotFound(err) && remove {
+		token, err = l.SystemAccountManager.GetOrCreateProjectSystemToken(obj.Namespace)
+	} else if err == nil {
+		token, err = l.UserManager.EnsureToken(helmTokenPrefix+user.Name, description, user.Name)
 	}
-	token, err := l.UserManager.EnsureToken(helmTokenPrefix+user.Name, description, user.Name)
 	if err != nil {
 		return "", err
 	}

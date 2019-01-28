@@ -10,6 +10,8 @@ import (
 	"github.com/rancher/rke/k8s"
 	"github.com/rancher/rke/log"
 	"github.com/rancher/rke/services"
+	"github.com/rancher/rke/templates"
+	"github.com/rancher/rke/util"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 )
 
@@ -30,14 +32,19 @@ const (
 	DefaultAuthStrategy      = "x509"
 	DefaultAuthorizationMode = "rbac"
 
+	DefaultAuthnWebhookFile  = templates.AuthnWebhook
+	DefaultAuthnCacheTimeout = "5s"
+
 	DefaultNetworkPlugin        = "canal"
 	DefaultNetworkCloudProvider = "none"
 
-	DefaultIngressController         = "nginx"
-	DefaultEtcdBackupCreationPeriod  = "12h"
-	DefaultEtcdBackupRetentionPeriod = "72h"
-	DefaultEtcdSnapshot              = true
-	DefaultMonitoringProvider        = "metrics-server"
+	DefaultIngressController             = "nginx"
+	DefaultEtcdBackupCreationPeriod      = "12h"
+	DefaultEtcdBackupRetentionPeriod     = "72h"
+	DefaultEtcdSnapshot                  = true
+	DefaultMonitoringProvider            = "metrics-server"
+	DefaultEtcdBackupConfigIntervalHours = 12
+	DefaultEtcdBackupConfigRetention     = 6
 
 	DefaultEtcdHeartbeatIntervalName  = "heartbeat-interval"
 	DefaultEtcdHeartbeatIntervalValue = "500"
@@ -46,9 +53,13 @@ const (
 )
 
 type ExternalFlags struct {
-	ConfigDir        string
+	CertificateDir   string
 	ClusterFilePath  string
+	DinD             bool
+	ConfigDir        string
+	CustomCerts      bool
 	DisablePortCheck bool
+	GenerateCSR      bool
 	Local            bool
 	UpdateOnly       bool
 }
@@ -65,7 +76,7 @@ func setDefaultIfEmpty(varName *string, defaultValue string) {
 	}
 }
 
-func (c *Cluster) setClusterDefaults(ctx context.Context) {
+func (c *Cluster) setClusterDefaults(ctx context.Context) error {
 	if len(c.SSHKeyPath) == 0 {
 		c.SSHKeyPath = DefaultClusterSSHKeyPath
 	}
@@ -134,9 +145,15 @@ func (c *Cluster) setClusterDefaults(ctx context.Context) {
 		}
 		c.PrivateRegistriesMap[pr.URL] = pr
 	}
-	c.setClusterImageDefaults()
+	err := c.setClusterImageDefaults()
+	if err != nil {
+		return err
+	}
 	c.setClusterServicesDefaults()
 	c.setClusterNetworkDefaults()
+	c.setClusterAuthnDefaults()
+
+	return nil
 }
 
 func (c *Cluster) setClusterServicesDefaults() {
@@ -162,7 +179,6 @@ func (c *Cluster) setClusterServicesDefaults() {
 		&c.Services.Kubelet.ClusterDNSServer:             DefaultClusterDNSService,
 		&c.Services.Kubelet.ClusterDomain:                DefaultClusterDomain,
 		&c.Services.Kubelet.InfraContainerImage:          c.SystemImages.PodInfraContainer,
-		&c.Authentication.Strategy:                       DefaultAuthStrategy,
 		&c.Services.Etcd.Creation:                        DefaultEtcdBackupCreationPeriod,
 		&c.Services.Etcd.Retention:                       DefaultEtcdBackupRetentionPeriod,
 	}
@@ -179,14 +195,27 @@ func (c *Cluster) setClusterServicesDefaults() {
 	if _, ok := c.Services.Etcd.ExtraArgs[DefaultEtcdHeartbeatIntervalName]; !ok {
 		c.Services.Etcd.ExtraArgs[DefaultEtcdHeartbeatIntervalName] = DefaultEtcdHeartbeatIntervalValue
 	}
+
+	if c.Services.Etcd.BackupConfig != nil {
+		if c.Services.Etcd.BackupConfig.IntervalHours == 0 {
+			c.Services.Etcd.BackupConfig.IntervalHours = DefaultEtcdBackupConfigIntervalHours
+		}
+		if c.Services.Etcd.BackupConfig.Retention == 0 {
+			c.Services.Etcd.BackupConfig.Retention = DefaultEtcdBackupConfigRetention
+		}
+	}
 }
 
-func (c *Cluster) setClusterImageDefaults() {
+func (c *Cluster) setClusterImageDefaults() error {
 	var privRegURL string
-	imageDefaults, ok := v3.K8sVersionToRKESystemImages[c.Version]
-	if !ok {
-		imageDefaults = v3.K8sVersionToRKESystemImages[DefaultK8sVersion]
+
+	// Version Check
+	err := util.ValidateVersion(c.Version)
+	if err != nil {
+		return err
 	}
+
+	imageDefaults := v3.AllK8sVersions[c.Version]
 
 	for _, privReg := range c.PrivateRegistries {
 		if privReg.IsDefault {
@@ -224,6 +253,8 @@ func (c *Cluster) setClusterImageDefaults() {
 	for k, v := range systemImagesDefaultsMap {
 		setDefaultIfEmpty(k, v)
 	}
+
+	return nil
 }
 
 func (c *Cluster) setClusterNetworkDefaults() {
@@ -265,6 +296,28 @@ func (c *Cluster) setClusterNetworkDefaults() {
 	}
 	for k, v := range networkPluginConfigDefaultsMap {
 		setDefaultIfEmptyMapValue(c.Network.Options, k, v)
+	}
+}
+
+func (c *Cluster) setClusterAuthnDefaults() {
+	setDefaultIfEmpty(&c.Authentication.Strategy, DefaultAuthStrategy)
+
+	for _, strategy := range strings.Split(c.Authentication.Strategy, "|") {
+		strategy = strings.ToLower(strings.TrimSpace(strategy))
+		c.AuthnStrategies[strategy] = true
+	}
+
+	if c.AuthnStrategies[AuthnWebhookProvider] && c.Authentication.Webhook == nil {
+		c.Authentication.Webhook = &v3.AuthWebhookConfig{}
+	}
+	if c.Authentication.Webhook != nil {
+		webhookConfigDefaultsMap := map[*string]string{
+			&c.Authentication.Webhook.ConfigFile:   DefaultAuthnWebhookFile,
+			&c.Authentication.Webhook.CacheTimeout: DefaultAuthnCacheTimeout,
+		}
+		for k, v := range webhookConfigDefaultsMap {
+			setDefaultIfEmpty(k, v)
+		}
 	}
 }
 

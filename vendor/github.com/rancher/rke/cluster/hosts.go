@@ -21,6 +21,8 @@ const (
 	etcdRoleLabel         = "node-role.kubernetes.io/etcd"
 	controlplaneRoleLabel = "node-role.kubernetes.io/controlplane"
 	workerRoleLabel       = "node-role.kubernetes.io/worker"
+	cloudConfigFileName   = "/etc/kubernetes/cloud-config"
+	authnWebhookFileName  = "/etc/kubernetes/kube-api-authn-webhook.yaml"
 )
 
 func (c *Cluster) TunnelHosts(ctx context.Context, flags ExternalFlags) error {
@@ -116,9 +118,13 @@ func (c *Cluster) InvertIndexHosts() error {
 	return nil
 }
 
-func (c *Cluster) SetUpHosts(ctx context.Context, rotateCerts bool) error {
-	if c.Authentication.Strategy == X509AuthenticationProvider {
+func (c *Cluster) SetUpHosts(ctx context.Context, flags ExternalFlags) error {
+	if c.AuthnStrategies[AuthnX509Provider] {
 		log.Infof(ctx, "[certificates] Deploying kubernetes certificates to Cluster nodes")
+		forceDeploy := false
+		if flags.CustomCerts || c.RancherKubernetesEngineConfig.RotateCertificates != nil {
+			forceDeploy = true
+		}
 		hostList := hosts.GetUniqueHostList(c.EtcdHosts, c.ControlPlaneHosts, c.WorkerHosts)
 		var errgrp errgroup.Group
 
@@ -127,7 +133,7 @@ func (c *Cluster) SetUpHosts(ctx context.Context, rotateCerts bool) error {
 			errgrp.Go(func() error {
 				var errList []error
 				for host := range hostsQueue {
-					err := pki.DeployCertificatesOnPlaneHost(ctx, host.(*hosts.Host), c.RancherKubernetesEngineConfig, c.Certificates, c.SystemImages.CertDownloader, c.PrivateRegistriesMap, rotateCerts)
+					err := pki.DeployCertificatesOnPlaneHost(ctx, host.(*hosts.Host), c.RancherKubernetesEngineConfig, c.Certificates, c.SystemImages.CertDownloader, c.PrivateRegistriesMap, forceDeploy)
 					if err != nil {
 						errList = append(errList, err)
 					}
@@ -144,10 +150,17 @@ func (c *Cluster) SetUpHosts(ctx context.Context, rotateCerts bool) error {
 		}
 		log.Infof(ctx, "[certificates] Successfully deployed kubernetes certificates to Cluster nodes")
 		if c.CloudProvider.Name != "" {
-			if err := deployCloudProviderConfig(ctx, hostList, c.SystemImages.Alpine, c.PrivateRegistriesMap, c.CloudConfigFile); err != nil {
+			if err := deployFile(ctx, hostList, c.SystemImages.Alpine, c.PrivateRegistriesMap, cloudConfigFileName, c.CloudConfigFile); err != nil {
 				return err
 			}
-			log.Infof(ctx, "[%s] Successfully deployed kubernetes cloud config to Cluster nodes", CloudConfigServiceName)
+			log.Infof(ctx, "[%s] Successfully deployed kubernetes cloud config to Cluster nodes", cloudConfigFileName)
+		}
+
+		if c.Authentication.Webhook != nil {
+			if err := deployFile(ctx, hostList, c.SystemImages.Alpine, c.PrivateRegistriesMap, authnWebhookFileName, c.Authentication.Webhook.ConfigFile); err != nil {
+				return err
+			}
+			log.Infof(ctx, "[%s] Successfully deployed authentication webhook config Cluster nodes", cloudConfigFileName)
 		}
 	}
 	return nil

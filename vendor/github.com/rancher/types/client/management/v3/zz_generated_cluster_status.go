@@ -8,6 +8,7 @@ const (
 	ClusterStatusFieldAppliedEnableNetworkPolicy           = "appliedEnableNetworkPolicy"
 	ClusterStatusFieldAppliedPodSecurityPolicyTemplateName = "appliedPodSecurityPolicyTemplateId"
 	ClusterStatusFieldAppliedSpec                          = "appliedSpec"
+	ClusterStatusFieldAuthImage                            = "authImage"
 	ClusterStatusFieldCACert                               = "caCert"
 	ClusterStatusFieldCapabilities                         = "capabilities"
 	ClusterStatusFieldCapacity                             = "capacity"
@@ -28,6 +29,7 @@ type ClusterStatus struct {
 	AppliedEnableNetworkPolicy           bool                     `json:"appliedEnableNetworkPolicy,omitempty" yaml:"appliedEnableNetworkPolicy,omitempty"`
 	AppliedPodSecurityPolicyTemplateName string                   `json:"appliedPodSecurityPolicyTemplateId,omitempty" yaml:"appliedPodSecurityPolicyTemplateId,omitempty"`
 	AppliedSpec                          *ClusterSpec             `json:"appliedSpec,omitempty" yaml:"appliedSpec,omitempty"`
+	AuthImage                            string                   `json:"authImage,omitempty" yaml:"authImage,omitempty"`
 	CACert                               string                   `json:"caCert,omitempty" yaml:"caCert,omitempty"`
 	Capabilities                         *Capabilities            `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 	Capacity                             map[string]string        `json:"capacity,omitempty" yaml:"capacity,omitempty"`

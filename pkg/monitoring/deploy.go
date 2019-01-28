@@ -27,7 +27,7 @@ func EnsureAppProjectName(agentNamespacesClient corev1.NamespaceInterface, owned
 
 	if deployNamespace.Name == appTargetNamespace {
 		if deployNamespace.DeletionTimestamp != nil {
-			return "", errors.New(fmt.Sprintf("stale %q Namespace is still on terminating", appTargetNamespace))
+			return "", fmt.Errorf("stale %q Namespace is still on terminating", appTargetNamespace)
 		}
 	} else {
 		deployNamespace = &k8scorev1.Namespace{
@@ -67,13 +67,13 @@ func EnsureAppProjectName(agentNamespacesClient corev1.NamespaceInterface, owned
 	return appProjectName, nil
 }
 
-func DetectAppCatalogExistence(appCatalogID string, cattleTemplateVersionsClient mgmtv3.TemplateVersionInterface) error {
-	templateVersionID, err := common.ParseExternalID(appCatalogID)
+func DetectAppCatalogExistence(appCatalogID string, cattleTemplateVersionsClient mgmtv3.CatalogTemplateVersionInterface) error {
+	templateVersionID, templateVersionNamespace, err := common.ParseExternalID(appCatalogID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to parse catalog ID %q", appCatalogID)
 	}
 
-	_, err = cattleTemplateVersionsClient.Get(templateVersionID, metav1.GetOptions{})
+	_, err = cattleTemplateVersionsClient.GetNamespaced(templateVersionNamespace, templateVersionID, metav1.GetOptions{})
 	if err != nil {
 		return errors.Wrapf(err, "failed to find catalog by ID %q", appCatalogID)
 	}
@@ -97,7 +97,7 @@ func GetSystemProjectID(cattleProjectsClient mgmtv3.ProjectInterface) (string, e
 		}
 	}
 	if systemProject == nil {
-		return "", errors.New(fmt.Sprintf("failed to find any cattle system project"))
+		return "", fmt.Errorf("failed to find any cattle system project")
 	}
 
 	return systemProject.Name, nil
@@ -111,7 +111,7 @@ func DeployApp(cattleAppsGetter projectv3.AppsGetter, projectID string, createAp
 	}
 	if app.Name == appName {
 		if app.DeletionTimestamp != nil {
-			return errors.New(fmt.Sprintf("stale %q App in %s Project is still on terminating", appName, projectID))
+			return fmt.Errorf("stale %q App in %s Project is still on terminating", appName, projectID)
 		}
 
 		return nil

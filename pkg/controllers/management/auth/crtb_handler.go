@@ -24,9 +24,23 @@ const (
 	ctrbMGMTController        = "mgmt-auth-crtb-controller"
 )
 
-var clusterManagmentPlaneResources = []string{"clusterroletemplatebindings", "nodes", "nodepools", "clusterevents",
-	"projects", "clusterregistrationtokens", "clusterloggings", "notifiers", "clusteralerts",
-	"podsecuritypolicytemplateprojectbindings", "clustercatalogs"}
+var clusterManagmentPlaneResources = []string{
+	"catalogtemplates",
+	"catalogtemplateversions",
+	"clusteralertrules",
+	"clusteralertgroups",
+	"clustercatalogs",
+	"clusterevents",
+	"clusterloggings",
+	"clustermonitorgraphs",
+	"clusterregistrationtokens",
+	"clusterroletemplatebindings",
+	"nodes",
+	"nodepools",
+	"notifiers",
+	"podsecuritypolicytemplateprojectbindings",
+	"projects",
+}
 
 type crtbLifecycle struct {
 	mgr           *manager

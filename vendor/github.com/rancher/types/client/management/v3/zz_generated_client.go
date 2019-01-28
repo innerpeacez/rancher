@@ -23,6 +23,8 @@ type Client struct {
 	ClusterRegistrationToken                ClusterRegistrationTokenOperations
 	Catalog                                 CatalogOperations
 	Template                                TemplateOperations
+	CatalogTemplate                         CatalogTemplateOperations
+	CatalogTemplateVersion                  CatalogTemplateVersionOperations
 	TemplateVersion                         TemplateVersionOperations
 	TemplateContent                         TemplateContentOperations
 	Group                                   GroupOperations
@@ -50,12 +52,16 @@ type Client struct {
 	ProjectCatalog                          ProjectCatalogOperations
 	ClusterCatalog                          ClusterCatalogOperations
 	MultiClusterApp                         MultiClusterAppOperations
+	MultiClusterAppRevision                 MultiClusterAppRevisionOperations
 	GlobalDNS                               GlobalDNSOperations
 	GlobalDNSProvider                       GlobalDNSProviderOperations
 	KontainerDriver                         KontainerDriverOperations
+	EtcdBackup                              EtcdBackupOperations
 	MonitorMetric                           MonitorMetricOperations
 	ClusterMonitorGraph                     ClusterMonitorGraphOperations
 	ProjectMonitorGraph                     ProjectMonitorGraphOperations
+	CloudCredential                         CloudCredentialOperations
+	ManagementSecret                        ManagementSecretOperations
 }
 
 func NewClient(opts *clientbase.ClientOpts) (*Client, error) {
@@ -84,6 +90,8 @@ func NewClient(opts *clientbase.ClientOpts) (*Client, error) {
 	client.ClusterRegistrationToken = newClusterRegistrationTokenClient(client)
 	client.Catalog = newCatalogClient(client)
 	client.Template = newTemplateClient(client)
+	client.CatalogTemplate = newCatalogTemplateClient(client)
+	client.CatalogTemplateVersion = newCatalogTemplateVersionClient(client)
 	client.TemplateVersion = newTemplateVersionClient(client)
 	client.TemplateContent = newTemplateContentClient(client)
 	client.Group = newGroupClient(client)
@@ -111,12 +119,16 @@ func NewClient(opts *clientbase.ClientOpts) (*Client, error) {
 	client.ProjectCatalog = newProjectCatalogClient(client)
 	client.ClusterCatalog = newClusterCatalogClient(client)
 	client.MultiClusterApp = newMultiClusterAppClient(client)
+	client.MultiClusterAppRevision = newMultiClusterAppRevisionClient(client)
 	client.GlobalDNS = newGlobalDNSClient(client)
 	client.GlobalDNSProvider = newGlobalDNSProviderClient(client)
 	client.KontainerDriver = newKontainerDriverClient(client)
+	client.EtcdBackup = newEtcdBackupClient(client)
 	client.MonitorMetric = newMonitorMetricClient(client)
 	client.ClusterMonitorGraph = newClusterMonitorGraphClient(client)
 	client.ProjectMonitorGraph = newProjectMonitorGraphClient(client)
+	client.CloudCredential = newCloudCredentialClient(client)
+	client.ManagementSecret = newManagementSecretClient(client)
 
 	return client, nil
 }
